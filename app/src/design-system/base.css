@@ -1,0 +1,7 @@
+html{-webkit-font-smoothing:antialiased;color-scheme:light}
+[data-theme="dark"]{color-scheme:dark}
+body{font-variation-settings:var(--font-dot-settings);margin:0;background:var(--surface-page);color:var(--text-primary);font:var(--type-body);letter-spacing:var(--tracking-ui);transition:background var(--dur-base) var(--ease-soft),color var(--dur-base)}
+a{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;transition:opacity var(--dur-fast)}
+a:hover{opacity:.7}
+::selection{background:var(--accent-soft);color:var(--stone-900)}
+:focus-visible{outline:2px dotted var(--focus-ring);outline-offset:3px}
