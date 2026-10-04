@@ -1,0 +1,53 @@
+:root{
+/* stone neutrals — warm grey */
+--stone-0:#FFFFFF;--stone-50:#F8F8F6;--stone-100:#EDECE9;--stone-200:#DFDEDA;--stone-300:#C9C7C2;--stone-400:#A19D97;--stone-500:#77736D;--stone-600:#57534E;--stone-700:#3A3734;--stone-800:#262523;--stone-850:#1F1F1E;--stone-900:#0E0E0D;--stone-950:#000000;
+/* chameleon tints — each has wash (100), soft (300), base (500), strong (700) */
+--sky-100:oklch(0.95 0.04 235);--sky-300:oklch(0.82 0.12 232);--sky-500:oklch(0.66 0.19 245);--sky-700:oklch(0.46 0.22 262);
+--sage-100:oklch(0.95 0.045 150);--sage-300:oklch(0.84 0.13 150);--sage-500:oklch(0.68 0.16 152);--sage-700:oklch(0.44 0.13 155);
+--sand-100:oklch(0.96 0.05 85);--sand-300:oklch(0.87 0.13 80);--sand-500:oklch(0.76 0.16 68);--sand-700:oklch(0.50 0.13 50);
+--lilac-100:oklch(0.95 0.045 300);--lilac-300:oklch(0.82 0.12 300);--lilac-500:oklch(0.64 0.20 298);--lilac-700:oklch(0.44 0.21 295);
+--blush-100:oklch(0.95 0.04 20);--blush-300:oklch(0.83 0.11 20);--blush-500:oklch(0.68 0.18 22);--blush-700:oklch(0.50 0.19 25);
+--cobalt-500:oklch(0.44 0.26 264);
+/* glossy orbs — the signature motif */
+--orb-sky:radial-gradient(circle at 35% 30%,#fff 0%,var(--sky-500) 45%,var(--sky-700) 82%);/* @kind color */
+--orb-sage:radial-gradient(circle at 35% 30%,#fff 0%,var(--sage-500) 45%,var(--sage-700) 82%);/* @kind color */
+--orb-sand:radial-gradient(circle at 35% 30%,#fff 0%,var(--sand-500) 45%,var(--sand-700) 82%);/* @kind color */
+--orb-lilac:radial-gradient(circle at 35% 30%,#fff 0%,var(--lilac-500) 45%,var(--lilac-700) 82%);/* @kind color */
+--orb-blush:radial-gradient(circle at 35% 30%,#fff 0%,var(--blush-500) 45%,var(--blush-700) 82%);/* @kind color */
+--window-bg:rgba(255,255,255,.55);/* @kind color */
+/* imagery grounds — vivid, luminous skies */
+--gradient-sky:linear-gradient(180deg,oklch(0.80 0.13 225) 0%,oklch(0.64 0.19 243) 50%,oklch(0.46 0.24 262) 100%);/* @kind color */
+--gradient-dusk:linear-gradient(180deg,oklch(0.86 0.12 70) 0%,oklch(0.70 0.18 30) 55%,oklch(0.50 0.22 355) 100%);/* @kind color */
+--gradient-cobalt:radial-gradient(circle at 50% 30%,oklch(0.66 0.22 250),oklch(0.44 0.26 264) 55%,oklch(0.28 0.18 268) 100%);/* @kind color */
+/* semantic hues */
+--green-500:oklch(0.50 0.13 150);--amber-500:oklch(0.62 0.14 65);--red-500:oklch(0.52 0.19 25);
+
+/* aliases — light */
+--surface-page:var(--stone-100);--surface-card:var(--stone-0);--surface-raised:var(--stone-50);--surface-sunken:var(--stone-200);--surface-input:var(--stone-200);--surface-hover:rgba(14,14,13,.07);--surface-selected:rgba(14,14,13,.12);--surface-inverse:var(--stone-900);--surface-scrim:rgba(14,14,13,.35);
+--text-primary:var(--stone-900);--text-secondary:var(--stone-700);--text-muted:var(--stone-600);--text-faint:var(--stone-500);--text-inverse:#FFFFFF;--text-on-glass:#FFFFFF;
+--border-subtle:rgba(14,14,13,.12);--border-default:rgba(14,14,13,.2);--border-strong:rgba(14,14,13,.42);
+--glass-bg:rgba(38,37,35,.62);--glass-bg-hover:rgba(24,23,22,.74);--glass-edge:inset 0 0 0 1px rgba(255,255,255,.18),inset 0 1px 0 rgba(255,255,255,.24);/* @kind shadow */
+--frost-bg:rgba(255,255,255,.86);--frost-edge:inset 0 0 0 1px rgba(255,255,255,.7),0 0 0 1px rgba(14,14,13,.1);/* @kind shadow */
+--accent:var(--sky-700);--accent-base:var(--sky-500);--accent-soft:var(--sky-300);--accent-wash:var(--sky-100);--on-accent:#FFFFFF;
+--focus-ring:var(--accent);
+--success:var(--green-500);--warning:var(--amber-500);--danger:var(--red-500);
+}
+[data-theme="dark"]{
+--window-bg:rgba(32,32,30,.55);
+--surface-page:var(--stone-950);--surface-card:#191918;--surface-raised:var(--stone-800);--surface-sunken:var(--stone-800);--surface-input:var(--stone-800);--surface-hover:rgba(255,255,255,.08);--surface-selected:rgba(255,255,255,.14);--surface-inverse:#FFFFFF;--surface-scrim:rgba(0,0,0,.65);
+--text-primary:#FFFFFF;--text-secondary:var(--stone-300);--text-muted:var(--stone-400);--text-faint:var(--stone-500);--text-inverse:var(--stone-900);
+--border-subtle:rgba(255,255,255,.12);--border-default:rgba(255,255,255,.2);--border-strong:rgba(255,255,255,.42);
+--glass-bg:rgba(58,58,56,.72);--glass-bg-hover:rgba(78,78,76,.8);--glass-edge:inset 0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.2);/* @kind shadow */
+--frost-bg:rgba(25,25,24,.88);--frost-edge:inset 0 0 0 1px rgba(255,255,255,.14);/* @kind shadow */
+--accent:var(--sky-300);--accent-wash:oklch(0.30 0.06 250);--on-accent:var(--stone-900);
+}
+[data-tint="sage"]{--accent:var(--sage-700);--accent-base:var(--sage-500);--accent-soft:var(--sage-300);--accent-wash:var(--sage-100)}
+[data-tint="sand"]{--accent:var(--sand-700);--accent-base:var(--sand-500);--accent-soft:var(--sand-300);--accent-wash:var(--sand-100)}
+[data-tint="lilac"]{--accent:var(--lilac-700);--accent-base:var(--lilac-500);--accent-soft:var(--lilac-300);--accent-wash:var(--lilac-100)}
+[data-tint="blush"]{--accent:var(--blush-700);--accent-base:var(--blush-500);--accent-soft:var(--blush-300);--accent-wash:var(--blush-100)}
+[data-tint="sky"]{--accent:var(--sky-700);--accent-base:var(--sky-500);--accent-soft:var(--sky-300);--accent-wash:var(--sky-100)}
+[data-theme="dark"][data-tint="sky"],[data-theme="dark"] [data-tint="sky"]{--accent:var(--sky-300);--accent-wash:oklch(0.30 0.06 250)}
+[data-theme="dark"][data-tint="sage"],[data-theme="dark"] [data-tint="sage"]{--accent:var(--sage-300);--accent-wash:oklch(0.30 0.06 150)}
+[data-theme="dark"][data-tint="sand"],[data-theme="dark"] [data-tint="sand"]{--accent:var(--sand-300);--accent-wash:oklch(0.30 0.06 75)}
+[data-theme="dark"][data-tint="lilac"],[data-theme="dark"] [data-tint="lilac"]{--accent:var(--lilac-300);--accent-wash:oklch(0.30 0.06 300)}
+[data-theme="dark"][data-tint="blush"],[data-theme="dark"] [data-tint="blush"]{--accent:var(--blush-300);--accent-wash:oklch(0.30 0.06 25)}

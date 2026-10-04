@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/effects.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/tokens/base.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/components/components.css">
+  <link rel="stylesheet" href="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/styles.css">
+  <script src="_ds/loft-design-system-9aea7bc5-b67f-47b6-babb-7891f0aa9030/_ds_bundle.js"></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <script src="icon.js"></script>
+  <style>html,body{margin:0;height:100%;overflow:hidden}body{background:var(--surface-page);font-family:var(--font-sans);color:var(--text-primary)}a{color:var(--accent);text-decoration:none}a:hover{opacity:.7}</style>
+</helmet>
+<div data-theme="{{ theme }}" data-tint="{{ baseTint }}" style="position:fixed;inset:0;display:flex;background:var(--surface-page);color:var(--text-primary);font:var(--type-body);overflow:hidden">
+
+  <aside style="width:var(--sidebar-w);flex:none;display:flex;flex-direction:column;gap:2px;padding:16px 10px;box-sizing:border-box;height:100%;position:relative;z-index:1;overflow:auto">
+    <div style="display:flex;align-items:center;padding:4px 8px 16px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Logo" height="{{ 20 }}" withWordmark="{{ true }}" hint-size="130px,20px"></x-import></div>
+    <sc-if value="{{ navSwitch }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:0 0 12px 4px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tabs" items="{{ navTabs }}" value="{{ navTab }}" onChange="{{ setNavTab }}" hint-size="220px,38px"></x-import></div>
+    </sc-if>
+    <sc-if value="{{ showWork }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ navSplit }}" hint-placeholder-val="{{ true }}"><div class="ch-eyebrow" style="padding:8px 8px 8px">Workstation</div></sc-if>
+      <sc-for list="{{ workRows }}" as="r" hint-placeholder-count="5">
+        <div onClick="{{ r.onClick }}" style="display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:10px;cursor:pointer;background:{{ r.bg }};color:{{ r.color }};font:500 14px/1 var(--font-sans)" style-hover="background:var(--surface-hover)">
+          <span style="color:var(--text-muted);display:grid"><x-import component-from-global-scope="ChIcon" icon="{{ r.icon }}" hint-size="16px,16px"></x-import></span>
+          <span style="flex:1">{{ r.label }}</span>
+          <sc-if value="{{ r.hasCount }}"><span style="min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:var(--surface-inverse);color:var(--text-inverse);font:600 11px/20px var(--font-sans);text-align:center">{{ r.count }}</span></sc-if>
+        </div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{ showFiles }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ navSplit }}" hint-placeholder-val="{{ true }}"><div class="ch-eyebrow" style="padding:22px 8px 8px">Files</div></sc-if>
+      <sc-for list="{{ treeRows }}" as="r" hint-placeholder-count="8">
+        <div onClick="{{ r.onClick }}" style="display:flex;align-items:center;gap:6px;height:32px;padding-right:8px;padding-left:{{ r.pad }};border-radius:10px;cursor:pointer;background:{{ r.bg }};color:{{ r.color }};font:500 14px/1 var(--font-sans)" style-hover="background:var(--surface-hover)">
+          <sc-if value="{{ r.hasKids }}"><span onClick="{{ r.toggle }}" style="display:grid;place-items:center;width:18px;height:18px;border-radius:6px;color:var(--text-muted)" style-hover="background:var(--surface-hover)"><x-import component-from-global-scope="ChIcon" icon="{{ r.caret }}" size="14" hint-size="14px,14px"></x-import></span></sc-if>
+          <sc-if value="{{ r.noKids }}"><span style="width:18px;flex:none"></span></sc-if>
+          <span data-tint="{{ r.tint }}" style="display:grid;color:{{ r.iconColor }}"><x-import component-from-global-scope="ChIcon" icon="{{ r.icon }}" hint-size="16px,16px"></x-import></span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:4px">{{ r.name }}</span>
+        </div>
+      </sc-for>
+    </sc-if>
+  </aside>
+
+  <main ref="{{ mainRef }}" data-tint="{{ screenTint }}" style="flex:1;min-width:0;z-index:1;background-image:radial-gradient(circle,var(--text-primary) 1.4px,transparent 1.8px);background-size:6px 7px;background-repeat:repeat-y;background-position:-1px 0;overflow:auto;position:relative">
+    <header style="display:flex;align-items:center;gap:8px;height:52px;padding:0 16px;position:sticky;top:0;z-index:5;background-color:var(--surface-page);background-image:radial-gradient(circle,var(--text-primary) 1.4px,transparent 1.8px);background-size:6px 7px;background-repeat:repeat-y;background-position:-1px 0">
+      <nav style="display:flex;align-items:center;gap:2px;font:var(--type-label);letter-spacing:.04em;text-transform:uppercase;min-width:0;overflow:hidden">
+        <sc-for list="{{ crumbs }}" as="c" hint-placeholder-count="1">
+          <sc-if value="{{ c.notFirst }}"><span style="color:var(--text-faint)">/</span></sc-if>
+          <button onClick="{{ c.onClick }}" style="all:unset;cursor:pointer;padding:4px 6px;border-radius:8px;white-space:nowrap;color:{{ c.color }}">{{ c.label }}</button>
+        </sc-for>
+      </nav>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="success" dot="{{ true }}" hint-size="70px,22px">Synced</x-import></div>
+    </header>
+
+    <!-- INBOX -->
+    <sc-if value="{{ isInbox }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:1040px;margin:0 auto;padding:56px 40px 120px;display:flex;flex-direction:column;gap:48px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="ch-label">{{ todayLabel }}</div>
+          <h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">Inbox</h1>
+        </div>
+        <section style="display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:baseline;gap:10px"><h2 style="font:600 22px/1.2 var(--font-sans);letter-spacing:-0.015em;margin:0">Due</h2><span class="ch-label">{{ dueCount }} open</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+            <sc-for list="{{ dueCols }}" as="c" hint-placeholder-count="3">
+              <div style="background:var(--surface-card);border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;gap:2px;min-height:120px">
+                <div style="display:flex;justify-content:space-between;padding:0 6px 8px"><span class="ch-label" style="color:{{ c.labelColor }}">{{ c.label }}</span><span class="ch-label">{{ c.count }}</span></div>
+                <sc-for list="{{ c.items }}" as="t" hint-placeholder-count="2">
+                  <div data-tint="{{ t.tint }}" style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:12px" style-hover="background:var(--surface-hover)">
+                    <div style="padding-top:1px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" checked="{{ t.done }}" onChange="{{ t.toggle }}" hint-size="18px,18px"></x-import></div>
+                    <div onClick="{{ t.open }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;cursor:pointer"><span style="font:500 14px/1.35 var(--font-sans)">{{ t.title }}</span><span style="font:400 12px/1.3 var(--font-sans);color:var(--text-muted)">{{ t.meta }}</span></div>
+                    <sc-if value="{{ t.canMove }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" size="s" onClick="{{ t.moveToday }}" hint-size="64px,30px">To today</x-import></sc-if>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ c.empty }}"><div style="padding:6px;color:var(--text-muted);font-size:14px">Nothing here</div></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        <section style="display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:baseline;gap:10px"><h2 style="font:600 22px/1.2 var(--font-sans);letter-spacing:-0.015em;margin:0">To review</h2><span class="ch-label">{{ reviewCount }} for the library</span></div>
+          <sc-if value="{{ reviewEmpty }}"><div style="background:var(--surface-card);border-radius:20px;padding:28px;color:var(--text-secondary);font-size:15px">Nothing to review. New lesson notes wait here until you mark them as done.</div></sc-if>
+          <sc-if value="{{ inboxList }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ reviewGroups }}" as="g" hint-placeholder-count="2">
+              <div data-tint="{{ g.tint }}" style="background:var(--surface-card);border-radius:20px;padding:8px">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 10px 8px">
+                  <span style="width:24px;height:24px;border-radius:7px;background:var(--accent-wash);color:var(--accent);display:grid;place-items:center"><x-import component-from-global-scope="ChIcon" icon="{{ g.icon }}" size="14" hint-size="14px,14px"></x-import></span>
+                  <span style="font:600 14px/1 var(--font-sans)">{{ g.name }}</span><span class="ch-label">{{ g.count }}</span>
+                </div>
+                <sc-for list="{{ g.items }}" as="d" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 10px;border-radius:12px" style-hover="background:var(--surface-hover)">
+                    <span style="color:var(--text-muted);display:grid"><x-import component-from-global-scope="ChIcon" icon="{{ d.icon }}" hint-size="16px,16px"></x-import></span>
+                    <div onClick="{{ d.open }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;cursor:pointer"><span style="font:500 15px/1.25 var(--font-sans)">{{ d.title }}</span><span style="font-size:12px;color:var(--text-muted)">{{ d.where }} · {{ d.meta }}</span></div>
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ d.tone }}" hint-size="60px,22px">{{ d.statusLabel }}</x-import>
+                    <div style="display:flex;gap:4px">
+                      <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" size="s" onClick="{{ d.later }}" hint-size="56px,30px">Later</x-import>
+                      <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" size="s" onClick="{{ d.decline }}" hint-size="70px,30px">Decline</x-import>
+                      <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" size="s" onClick="{{ d.done }}" hint-size="60px,30px">Done</x-import>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ inboxFocus }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ hasFocus }}">
+              <div data-tint="{{ focus.tint }}" style="display:flex;justify-content:center;padding:12px 0 24px">
+                <div style="width:100%;max-width:640px;background:var(--surface-card);border-radius:36px;padding:40px;box-sizing:border-box;display:flex;flex-direction:column;gap:20px;transform:rotate(-1.5deg)">
+                  <div style="display:flex;justify-content:space-between;align-items:center"><span class="ch-label" style="color:var(--accent)">{{ focus.subject }}</span><span class="ch-label">{{ focus.counter }}</span></div>
+                  <h2 style="font:600 44px/1 var(--font-sans);letter-spacing:-0.04em;margin:0">{{ focus.title }}</h2>
+                  <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted)"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ focus.tone }}" hint-size="60px,22px">{{ focus.statusLabel }}</x-import><span>{{ focus.where }} · {{ focus.meta }}</span></div>
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:16px 0;border-top:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle)">
+                    <sc-for list="{{ focus.preview }}" as="p"><p style="margin:0;color:var(--text-secondary);font-size:15px;line-height:1.55">{{ p }}</p></sc-for>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" onClick="{{ focus.openIt }}" hint-size="70px,40px">Open</x-import>
+                    <span style="flex:1"></span>
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" onClick="{{ focus.later }}" hint-size="70px,40px">Later</x-import>
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="secondary" onClick="{{ focus.decline }}" hint-size="80px,40px">Decline</x-import>
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" onClick="{{ focus.done }}" hint-size="70px,40px">Done</x-import>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- FOLDER -->
+    <sc-if value="{{ isFolder }}" hint-placeholder-val="{{ false }}">
+      <div data-tint="{{ fv.tint }}" style="max-width:1040px;margin:0 auto;padding:56px 40px 120px;display:flex;flex-direction:column;gap:40px">
+        <div style="display:flex;flex-direction:column;gap:14px;align-items:flex-start">
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Orb" tint="accent" size="{{ 56 }}" hint-size="56px,56px"><span style="color:#fff;display:grid"><x-import component-from-global-scope="ChIcon" icon="{{ fv.icon }}" size="22" hint-size="22px,22px"></x-import></span></x-import>
+          <div class="ch-label">{{ fv.label }}</div>
+          <h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">{{ fv.name }}</h1>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+            <sc-if value="{{ fv.canAdd }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" size="s" onClick="{{ fv.newNote }}" hint-size="90px,30px">New note</x-import></sc-if>
+            <sc-if value="{{ fv.hasLib }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tag" onToggle="{{ fv.cycleLib }}" hint-size="160px,32px">{{ fv.libLabel }}</x-import></sc-if>
+          </div>
+        </div>
+        <sc-if value="{{ fv.showOverview }}">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+            <div style="background:var(--surface-card);border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;gap:2px">
+              <div style="display:flex;justify-content:space-between;padding:0 6px 8px"><span class="ch-label">Open todos</span><span class="ch-label">{{ fv.todoCount }}</span></div>
+              <sc-for list="{{ fv.todos }}" as="t" hint-placeholder-count="2">
+                <div data-tint="{{ t.tint }}" style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:12px" style-hover="background:var(--surface-hover)">
+                  <div style="padding-top:1px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" checked="{{ t.done }}" onChange="{{ t.toggle }}" hint-size="18px,18px"></x-import></div>
+                  <div onClick="{{ t.open }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;cursor:pointer"><span style="font:500 14px/1.35 var(--font-sans)">{{ t.title }}</span><span style="font-size:12px;line-height:1.3;color:{{ t.dueColor }}">{{ t.meta }}</span></div>
+                </div>
+              </sc-for>
+              <sc-if value="{{ fv.noTodos }}"><div style="padding:6px;color:var(--text-muted);font-size:14px">No open todos</div></sc-if>
+            </div>
+            <div style="background:var(--surface-card);border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;gap:2px">
+              <div style="display:flex;justify-content:space-between;padding:0 6px 8px"><span class="ch-label">This week</span></div>
+              <sc-for list="{{ fv.events }}" as="e" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:12px;padding:8px 6px;font-size:14px">
+                  <span class="ch-label" style="width:76px;flex:none">{{ e.when }}</span>
+                  <span style="flex:1;font-weight:500">{{ e.title }}</span>
+                  <sc-if value="{{ e.isExam }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="inverse" hint-size="44px,22px">Exam</x-import></sc-if>
+                </div>
+              </sc-for>
+              <sc-if value="{{ fv.noEvents }}"><div style="padding:6px;color:var(--text-muted);font-size:14px">No dates this week</div></sc-if>
+            </div>
+          </div>
+        </sc-if>
+        <section style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:baseline;gap:10px"><h2 style="font:600 22px/1.2 var(--font-sans);letter-spacing:-0.015em;margin:0">{{ fv.filesTitle }}</h2><span class="ch-label">{{ fv.itemCount }}</span></div>
+          <sc-if value="{{ fv.listMode }}">
+            <div style="background:var(--surface-card);border-radius:20px;padding:6px">
+              <sc-for list="{{ fv.items }}" as="d" hint-placeholder-count="4">
+                <div onClick="{{ d.open }}" data-tint="{{ d.tint }}" style="display:flex;align-items:center;gap:12px;height:52px;padding:0 10px;border-radius:14px;cursor:pointer" style-hover="background:var(--surface-hover)">
+                  <span style="width:30px;height:30px;border-radius:9px;background:var(--accent-wash);color:var(--accent);display:grid;place-items:center;flex:none"><x-import component-from-global-scope="ChIcon" icon="{{ d.icon }}" hint-size="16px,16px"></x-import></span>
+                  <span style="flex:1;min-width:0;font:500 15px/1.2 var(--font-sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.title }}</span>
+                  <span style="font-size:13px;color:var(--text-muted);white-space:nowrap">{{ d.meta }}</span>
+                  <span style="width:96px;display:flex;justify-content:flex-end;flex:none"><sc-if value="{{ d.hasStatus }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ d.tone }}" hint-size="60px,22px">{{ d.statusLabel }}</x-import></sc-if></span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ fv.gridMode }}">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+              <sc-for list="{{ fv.items }}" as="d" hint-placeholder-count="4">
+                <div onClick="{{ d.open }}" data-tint="{{ d.tint }}" style="background:var(--surface-card);border-radius:22px;padding:12px 12px 16px;display:flex;flex-direction:column;gap:14px;cursor:pointer;transition:transform 320ms cubic-bezier(.22,1,.36,1)" style-hover="transform:translateY(-2px)">
+                  <div style="height:96px;border-radius:14px;background:var(--accent-wash);color:var(--accent);display:grid;place-items:center;position:relative">
+                    <x-import component-from-global-scope="ChIcon" icon="{{ d.icon }}" size="26" hint-size="26px,26px"></x-import>
+                    <sc-if value="{{ d.hasStatus }}"><div style="position:absolute;left:8px;top:8px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ d.tone }}" hint-size="60px,22px">{{ d.statusLabel }}</x-import></div></sc-if>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;padding:0 4px"><span style="font:600 15px/1.25 var(--font-sans)">{{ d.title }}</span><span style="font-size:13px;color:var(--text-muted)">{{ d.meta }}</span></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ fv.empty }}"><div style="color:var(--text-muted);font-size:15px;padding:4px 0">{{ fv.emptyText }}</div></sc-if>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- NOTES -->
+    <sc-if value="{{ isNotes }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1040px;margin:0 auto;padding:56px 40px 120px;display:flex;flex-direction:column;gap:32px">
+        <div style="display:flex;flex-direction:column;gap:12px"><div class="ch-label">{{ notesCount }} notes</div><h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">Notes</h1></div>
+        <div style="background:var(--surface-card);border-radius:20px;padding:6px">
+          <sc-for list="{{ allNotes }}" as="d" hint-placeholder-count="6">
+            <div onClick="{{ d.open }}" data-tint="{{ d.tint }}" style="display:flex;align-items:center;gap:12px;height:56px;padding:0 10px;border-radius:14px;cursor:pointer" style-hover="background:var(--surface-hover)">
+              <span style="width:30px;height:30px;border-radius:9px;background:var(--accent-wash);color:var(--accent);display:grid;place-items:center;flex:none"><x-import component-from-global-scope="ChIcon" icon="{{ d.icon }}" hint-size="16px,16px"></x-import></span>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font:500 15px/1.2 var(--font-sans)">{{ d.title }}</span><span style="font-size:12px;color:var(--text-muted)">{{ d.where }}</span></div>
+              <span style="font-size:13px;color:var(--text-muted);white-space:nowrap">{{ d.meta }}</span>
+              <span style="width:96px;display:flex;justify-content:flex-end;flex:none"><sc-if value="{{ d.hasStatus }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ d.tone }}" hint-size="60px,22px">{{ d.statusLabel }}</x-import></sc-if></span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- NOTE EDITOR -->
+    <sc-if value="{{ isNote }}" hint-placeholder-val="{{ false }}">
+      <div data-tint="{{ nv.tint }}" style="max-width:var(--measure);margin:0 auto;padding:56px 32px 160px">
+        <div style="display:flex;flex-direction:column;gap:14px;align-items:flex-start">
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Orb" tint="accent" size="{{ 56 }}" hint-size="56px,56px"><span style="color:#fff;display:grid"><x-import component-from-global-scope="ChIcon" icon="{{ nv.icon }}" size="22" hint-size="22px,22px"></x-import></span></x-import>
+          <div class="ch-label">{{ nv.label }}</div>
+          <h1 contentEditable="true" suppressContentEditableWarning="{{ true }}" onBlur="{{ nv.rename }}" style="font:600 64px/.95 var(--font-sans);letter-spacing:var(--tracking-display);margin:0;outline:none">{{ nv.title }}</h1>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:20px 0 32px">
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="{{ nv.tone }}" hint-size="60px,22px">{{ nv.statusLabel }}</x-import>
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tag" onToggle="{{ nv.cycleLib }}" hint-size="160px,32px">{{ nv.libLabel }}</x-import>
+          <span style="flex:1"></span>
+          <sc-if value="{{ nv.canDone }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" size="s" onClick="{{ nv.done }}" hint-size="110px,30px">Mark as done</x-import></sc-if>
+          <sc-if value="{{ nv.isIntegrated }}"><span style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)"><x-import component-from-global-scope="ChIcon" icon="Library" size="14" hint-size="14px,14px"></x-import>{{ nv.topic }}</span></sc-if>
+        </div>
+        <sc-for list="{{ nv.blocks }}" as="b" hint-placeholder-count="5">
+          <sc-if value="{{ b.isH2 }}"><h2 contentEditable="true" suppressContentEditableWarning="{{ true }}" style="font:600 22px/1.3 var(--font-sans);letter-spacing:-0.015em;margin:28px 0 6px;outline:none">{{ b.x }}</h2></sc-if>
+          <sc-if value="{{ b.isP }}">
+            <div style="margin:4px 0">
+              <p contentEditable="true" suppressContentEditableWarning="{{ true }}" style="margin:0;min-height:1.55em;outline:none;color:{{ b.color }}">{{ b.x }}</p>
+              <sc-if value="{{ b.isAi }}"><div style="display:flex;gap:8px;align-items:center;margin:6px 0 8px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="accent" hint-size="70px,22px">AI-added</x-import><span style="font-size:12px;color:var(--text-muted)">{{ b.src }}</span></div></sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ b.isUl }}"><div style="display:flex;gap:12px;padding:3px 0"><span style="width:6px;height:6px;border-radius:50%;background:var(--text-primary);margin-top:11px;flex:none"></span><div contentEditable="true" suppressContentEditableWarning="{{ true }}" style="outline:none">{{ b.x }}</div></div></sc-if>
+          <sc-if value="{{ b.isCallout }}">
+            <div style="display:flex;gap:12px;padding:16px 18px;border-radius:16px;background:var(--accent-wash);margin:14px 0">
+              <span style="color:var(--accent);display:grid;padding-top:2px"><x-import component-from-global-scope="ChIcon" icon="Lightbulb" hint-size="16px,16px"></x-import></span>
+              <div style="display:flex;flex-direction:column;gap:4px"><span class="ch-label" style="color:var(--accent)">Remember</span><div contentEditable="true" suppressContentEditableWarning="{{ true }}" style="font:500 16px/1.5 var(--font-sans);outline:none;color:var(--text-primary)">{{ b.x }}</div></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ b.isGap }}">
+            <div style="margin:14px 0;border-radius:16px;box-shadow:inset 0 0 0 1.5px var(--border-default);padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;align-items:center;gap:10px;min-height:30px">
+                <span style="color:var(--text-muted);display:grid"><x-import component-from-global-scope="ChIcon" icon="CircleHelp" hint-size="16px,16px"></x-import></span>
+                <span style="flex:1;font:500 15px/1.3 var(--font-sans);color:var(--text-secondary)">Missing: {{ b.x }}</span>
+                <sc-if value="{{ b.canAsk }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" size="s" onClick="{{ b.ask }}" hint-size="80px,30px">Suggest</x-import></sc-if>
+                <sc-if value="{{ b.asking }}"><span class="ch-label">Reading your materials…</span></sc-if>
+              </div>
+              <sc-if value="{{ b.hasSugg }}">
+                <div style="background:var(--surface-card);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-1)">
+                  <span class="ch-label" style="color:var(--accent)">Suggestion</span>
+                  <div style="font:500 16px/1.5 var(--font-sans)">{{ b.sugg }}</div>
+                  <div style="font-size:12px;color:var(--text-muted)">{{ b.src }}</div>
+                  <div style="display:flex;gap:6px"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" size="s" onClick="{{ b.accept }}" hint-size="70px,30px">Accept</x-import><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" size="s" onClick="{{ b.dismiss }}" hint-size="70px,30px">Dismiss</x-import></div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </sc-for>
+        <div style="position:relative;margin-top:16px">
+          <button onClick="{{ nv.toggleMenu }}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--text-muted);font:500 14px/1 var(--font-sans);padding:8px 0"><x-import component-from-global-scope="ChIcon" icon="Plus" hint-size="16px,16px"></x-import>Add a block</button>
+          <sc-if value="{{ nv.menuOpen }}"><div style="position:absolute;top:36px;left:0;z-index:10"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Menu" items="{{ blockMenu }}" onSelect="{{ nv.addBlock }}" hint-size="220px,240px"></x-import></div></sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- FLASHCARDS -->
+    <sc-if value="{{ isCards }}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{ noSession }}">
+        <div style="max-width:1040px;margin:0 auto;padding:56px 40px 120px;display:flex;flex-direction:column;gap:32px">
+          <div style="display:flex;flex-direction:column;gap:12px"><div class="ch-label">{{ dueTotal }} cards due today</div><h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">Flashcards</h1></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+            <sc-for list="{{ decks }}" as="k" hint-placeholder-count="3">
+              <div data-tint="{{ k.tint }}" style="background:var(--surface-card);border-radius:28px;padding:24px;display:flex;flex-direction:column;gap:18px">
+                <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Orb" tint="accent" size="{{ 44 }}" hint-size="44px,44px"><span style="color:#fff;display:grid"><x-import component-from-global-scope="ChIcon" icon="Layers" size="18" hint-size="18px,18px"></x-import></span></x-import>
+                <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 22px/1.15 var(--font-sans);letter-spacing:-0.02em">{{ k.name }}</span><span style="font-size:13px;color:var(--text-muted)">{{ k.where }}</span></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                  <span class="ch-label">{{ k.countLabel }}</span>
+                  <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="{{ k.btnVariant }}" size="s" onClick="{{ k.study }}" hint-size="70px,30px">Study</x-import>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ inSession }}">
+        <div data-tint="{{ sess.tint }}" style="max-width:760px;margin:0 auto;padding:40px 32px 120px;display:flex;flex-direction:column;gap:28px">
+          <div style="display:flex;align-items:center;gap:14px">
+            <x-import component-from-global-scope="LoftDesignSystem_9aea7b.IconButton" label="End session" size="s" onClick="{{ sess.exit }}" hint-size="30px,30px"><x-import component-from-global-scope="ChIcon" icon="X" hint-size="16px,16px"></x-import></x-import>
+            <span style="font:600 15px/1 var(--font-sans)">{{ sess.deckName }}</span>
+            <div style="flex:1;height:6px;border-radius:999px;background:var(--surface-sunken);overflow:hidden"><div style="height:100%;border-radius:999px;background:var(--accent);transition:width 320ms cubic-bezier(.22,1,.36,1);width:{{ sess.pct }}"></div></div>
+            <span class="ch-label">{{ sess.counter }}</span>
+          </div>
+          <sc-if value="{{ sess.notFinished }}">
+            <div style="background:var(--surface-card);border-radius:36px;padding:44px;display:flex;flex-direction:column;gap:24px;min-height:340px;box-sizing:border-box">
+              <span class="ch-label">Question</span>
+              <div style="font:600 34px/1.15 var(--font-sans);letter-spacing:-0.03em;text-wrap:pretty">{{ sess.q }}</div>
+              <sc-if value="{{ sess.notRevealed }}">
+                <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;gap:8px">
+                    <input class="ch-input ch-input--pill" placeholder="Type your answer first" value="{{ sess.answer }}" onChange="{{ sess.onAnswer }}" onKeyDown="{{ sess.answerKey }}">
+                    <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" onClick="{{ sess.reveal }}" hint-size="80px,40px">Reveal</x-import>
+                  </div>
+                  <span style="font-size:12px;color:var(--text-muted);padding-left:20px">Press Enter to reveal</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ sess.revealed }}">
+                <div style="display:flex;flex-direction:column;gap:12px;padding-top:24px;border-top:1px solid var(--border-subtle)">
+                  <span class="ch-label" style="color:var(--accent)">Answer</span>
+                  <div style="font:600 28px/1.2 var(--font-sans);letter-spacing:-0.02em">{{ sess.a }}</div>
+                  <sc-if value="{{ sess.hasAnswer }}"><div style="font-size:15px;color:var(--text-secondary)">Your answer: {{ sess.answer }}</div></sc-if>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)"><x-import component-from-global-scope="ChIcon" icon="BookOpen" size="14" hint-size="14px,14px"></x-import>From {{ sess.sec }}</div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:auto">
+                  <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="secondary" size="l" onClick="{{ sess.wrong }}" style="flex:1" hint-size="50%,52px">Wrong</x-import>
+                  <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" size="l" onClick="{{ sess.right }}" style="flex:1" hint-size="50%,52px">Right</x-import>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ sess.finished }}">
+            <div style="background:var(--surface-card);border-radius:36px;padding:44px;display:flex;flex-direction:column;gap:20px">
+              <span class="ch-label">Session finished</span>
+              <div style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display)">{{ sess.score }}</div>
+              <sc-if value="{{ sess.hasWrong }}">
+                <div style="display:flex;flex-direction:column;gap:6px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+                  <span class="ch-label">Due again tomorrow</span>
+                  <sc-for list="{{ sess.wrongList }}" as="w"><div style="font-size:15px;color:var(--text-secondary)">{{ w }}</div></sc-for>
+                </div>
+              </sc-if>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="secondary" onClick="{{ sess.again }}" hint-size="110px,40px">Study again</x-import>
+                <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" onClick="{{ sess.exit }}" hint-size="120px,40px">Back to decks</x-import>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- TODOS -->
+    <sc-if value="{{ isTodos }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1120px;margin:0 auto;padding:56px 40px 120px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:20px;min-width:0;flex:999 1 480px">
+          <div style="display:flex;flex-direction:column;gap:12px"><div class="ch-label">{{ todoOpenCount }} open</div><h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">Todos</h1></div>
+          <input class="ch-input ch-input--pill" placeholder="Add a todo and press Enter" value="{{ newTodo }}" onChange="{{ onNewTodo }}" onKeyDown="{{ newTodoKey }}" style="background:var(--surface-card)">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+            <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tabs" items="{{ todoTabs }}" value="{{ todoTab }}" onChange="{{ setTodoTab }}" hint-size="180px,38px"></x-import>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ subjectTags }}" as="s" hint-placeholder-count="6"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tag" selected="{{ s.sel }}" onToggle="{{ s.pick }}" hint-size="70px,32px">{{ s.label }}</x-import></sc-for>
+            </div>
+          </div>
+          <div style="background:var(--surface-card);border-radius:20px;padding:6px">
+            <sc-for list="{{ todoList }}" as="t" hint-placeholder-count="6">
+              <div data-tint="{{ t.tint }}" style="display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 10px;border-radius:14px;background:{{ t.bg }}" style-hover="background:var(--surface-hover)">
+                <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" checked="{{ t.done }}" onChange="{{ t.toggle }}" hint-size="18px,18px"></x-import>
+                <div onClick="{{ t.select }}" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;align-self:stretch">
+                  <span style="font:500 15px/1.3 var(--font-sans);color:{{ t.titleColor }};text-decoration:{{ t.strike }}">{{ t.title }}</span>
+                  <sc-if value="{{ t.isHw }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" hint-size="70px,22px">Homework</x-import></sc-if>
+                  <sc-if value="{{ t.inProg }}"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Badge" tone="accent" hint-size="80px,22px">In progress</x-import></sc-if>
+                  <sc-if value="{{ t.hasSubs }}"><span class="ch-label">{{ t.subCount }}</span></sc-if>
+                </div>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>{{ t.folderName }}</span>
+                <span style="width:84px;text-align:right;font-size:13px;white-space:nowrap;color:{{ t.dueColor }}">{{ t.due }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ todoEmpty }}"><div style="padding:20px;color:var(--text-muted);font-size:15px">Nothing here</div></sc-if>
+          </div>
+        </div>
+        <sc-if value="{{ hasDetail }}">
+          <div data-tint="{{ det.tint }}" style="position:sticky;top:76px;flex:1 1 300px;max-width:420px;box-sizing:border-box;background:var(--surface-card);border-radius:28px;padding:24px;display:flex;flex-direction:column;gap:20px">
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <div style="flex:1;font:600 22px/1.2 var(--font-sans);letter-spacing:-0.02em">{{ det.title }}</div>
+              <x-import component-from-global-scope="LoftDesignSystem_9aea7b.IconButton" label="Close" size="s" onClick="{{ det.close }}" hint-size="30px,30px"><x-import component-from-global-scope="ChIcon" icon="X" hint-size="16px,16px"></x-import></x-import>
+            </div>
+            <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tabs" items="{{ statusTabs }}" value="{{ det.status }}" onChange="{{ det.setStatus }}" hint-size="260px,38px"></x-import>
+            <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px 12px;font-size:14px;align-items:center">
+              <span class="ch-label">Folder</span><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>{{ det.path }}</span>
+              <span class="ch-label">Due</span><span style="color:{{ det.dueColor }}">{{ det.due }}</span>
+              <span class="ch-label">Kind</span><span>{{ det.kind }}</span>
+              <span class="ch-label">Planned</span><span>{{ det.schedLabel }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+              <span class="ch-label">Subtasks</span>
+              <sc-for list="{{ det.subs }}" as="x"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" label="{{ x.x }}" strike="{{ true }}" checked="{{ x.done }}" onChange="{{ x.toggle }}" hint-size="100%,22px"></x-import></sc-for>
+              <input class="ch-input" placeholder="Add a subtask" value="{{ newSub }}" onChange="{{ onNewSub }}" onKeyDown="{{ newSubKey }}" style="height:34px;font-size:14px">
+            </div>
+            <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="secondary" onClick="{{ det.schedule }}" hint-size="100%,40px">{{ det.schedBtn }}</x-import>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- CALENDAR -->
+    <sc-if value="{{ isCalendar }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:40px 32px 64px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:20px;min-width:0;flex:999 1 560px">
+          <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;gap:12px;flex:1"><div class="ch-label">{{ calRange }}</div><h1 style="font:600 64px/.9 var(--font-sans);letter-spacing:var(--tracking-display);margin:0">Calendar</h1></div>
+            <sc-if value="{{ calIsDay }}"><div style="display:flex;gap:4px">
+              <x-import component-from-global-scope="LoftDesignSystem_9aea7b.IconButton" label="Previous day" size="s" onClick="{{ prevDay }}" hint-size="30px,30px"><x-import component-from-global-scope="ChIcon" icon="ChevronLeft" hint-size="16px,16px"></x-import></x-import>
+              <x-import component-from-global-scope="LoftDesignSystem_9aea7b.IconButton" label="Next day" size="s" onClick="{{ nextDay }}" hint-size="30px,30px"><x-import component-from-global-scope="ChIcon" icon="ChevronRight" hint-size="16px,16px"></x-import></x-import>
+            </div></sc-if>
+            <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Tabs" items="{{ calTabs }}" value="{{ calMode }}" onChange="{{ setCalMode }}" hint-size="140px,38px"></x-import>
+          </div>
+          <div style="background:var(--surface-card);border-radius:24px;padding:12px 12px 16px;overflow-x:auto"><div style="min-width:620px">
+            <div style="display:grid;grid-template-columns:{{ colTemplate }}">
+              <div></div>
+              <sc-for list="{{ calCols }}" as="c" hint-placeholder-count="7">
+                <button onClick="{{ c.pick }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border-radius:12px;font:500 13px/1 var(--font-sans);color:{{ c.headColor }}" style-hover="background:var(--surface-hover)">
+                  <span>{{ c.dow }}</span><span style="min-width:26px;height:26px;border-radius:999px;display:grid;place-items:center;font-weight:600;background:{{ c.dateBg }};color:{{ c.dateColor }}">{{ c.date }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="display:grid;min-height:36px;border-bottom:1px solid var(--border-subtle);padding-bottom:6px;grid-template-columns:{{ colTemplate }}">
+              <span class="ch-label" style="font-size:11px;padding-top:6px">All day</span>
+              <sc-for list="{{ calCols }}" as="c" hint-placeholder-count="7">
+                <div style="display:flex;flex-direction:column;gap:4px;padding:2px 3px">
+                  <sc-for list="{{ c.exams }}" as="e"><div data-tint="{{ e.tint }}" style="display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;background:var(--surface-inverse);color:var(--text-inverse);font:600 12px/1 var(--font-sans);white-space:nowrap;overflow:hidden"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent-soft);flex:none"></span>{{ e.title }}</div></sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:grid;padding-top:8px;grid-template-columns:{{ colTemplate }}">
+              <div style="position:relative;height:{{ gridH }}">
+                <sc-for list="{{ hours }}" as="h" hint-placeholder-count="10"><span class="ch-label" style="position:absolute;left:0;font-size:11px;line-height:1;top:{{ h.top }}">{{ h.label }}</span></sc-for>
+              </div>
+              <sc-for list="{{ calCols }}" as="c" hint-placeholder-count="7">
+                <div onDragOver="{{ c.onDragOver }}" onDrop="{{ c.onDrop }}" style="position:relative;box-shadow:inset 1px 0 0 var(--border-subtle);background-image:repeating-linear-gradient(to bottom,var(--border-subtle) 0 1px,transparent 1px 48px);height:{{ gridH }};background-color:{{ c.colBg }}">
+                  <sc-for list="{{ c.events }}" as="e">
+                    <div onClick="{{ e.onClick }}" draggable="{{ e.draggable }}" onDragStart="{{ e.onDragStart }}" data-tint="{{ e.tint }}" style="position:absolute;left:3px;right:3px;border-radius:10px;padding:6px 8px;box-sizing:border-box;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;gap:3px;top:{{ e.top }};height:{{ e.height }};background:{{ e.bg }};box-shadow:{{ e.ring }}" style-hover="opacity:.85">
+                      <span style="font:600 12px/1.2 var(--font-sans);color:var(--text-primary);overflow:hidden;text-overflow:ellipsis">{{ e.title }}</span>
+                      <span style="font:500 11px/1.2 var(--font-sans);color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.meta }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;flex:1 1 220px;max-width:100%">
+          <span class="ch-label">Not planned yet</span>
+          <span style="font-size:13px;color:var(--text-muted);line-height:1.4">Drag a todo onto the calendar to plan it.</span>
+          <sc-for list="{{ unscheduled }}" as="t" hint-placeholder-count="4">
+            <div draggable="true" onDragStart="{{ t.onDragStart }}" data-tint="{{ t.tint }}" style="background:var(--surface-card);border-radius:14px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px;cursor:grab">
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:5px;flex:none"></span>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font:500 13px/1.3 var(--font-sans)">{{ t.title }}</span><span style="font-size:12px;color:{{ t.dueColor }}">{{ t.folderName }} · {{ t.due }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </main>
+
+  <sc-if value="{{ hasDialog }}" hint-placeholder-val="{{ false }}">
+    <div class="ch-dialog-scrim" onClick="{{ dlg.cancel }}" data-tint="{{ dlg.tint }}">
+      <div class="ch-dialog" onClick="{{ stop }}" style="max-width:540px;display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;flex-direction:column;gap:8px"><span class="ch-label" style="color:var(--accent)">Suggestion · Add to library</span><h2 class="ch-dialog__title" style="margin:0">{{ dlg.title }}</h2></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface-sunken);border-radius:12px;font:500 14px/1.3 var(--font-sans)"><x-import component-from-global-scope="ChIcon" icon="Library" hint-size="16px,16px"></x-import>{{ dlg.topic }}</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="ch-label">New on the knowledge page</span>
+          <sc-for list="{{ dlg.add }}" as="a"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" label="{{ a.x }}" checked="{{ a.checked }}" onChange="{{ a.toggle }}" hint-size="100%,22px"></x-import></sc-for>
+        </div>
+        <sc-if value="{{ dlg.hasExisting }}">
+          <div style="display:flex;flex-direction:column;gap:6px"><span class="ch-label">Already on the page</span><sc-for list="{{ dlg.existing }}" as="x"><span style="font-size:14px;color:var(--text-secondary)">{{ x }}</span></sc-for></div>
+        </sc-if>
+        <sc-if value="{{ dlg.hasSkip }}">
+          <div style="display:flex;flex-direction:column;gap:6px"><span class="ch-label">Not added</span><sc-for list="{{ dlg.skip }}" as="x"><span style="font-size:14px;color:var(--text-secondary)">{{ x }}</span></sc-for></div>
+        </sc-if>
+        <sc-if value="{{ dlg.hasDerived }}">
+          <div style="display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid var(--border-subtle)"><span class="ch-label">Also found</span><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Checkbox" label="{{ dlg.derivedLabel }}" checked="{{ dlg.derivedChecked }}" onChange="{{ dlg.toggleDerived }}" hint-size="100%,22px"></x-import></div>
+        </sc-if>
+        <div class="ch-dialog__actions">
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="ghost" onClick="{{ dlg.cancel }}" hint-size="80px,40px">Cancel</x-import>
+          <x-import component-from-global-scope="LoftDesignSystem_9aea7b.Button" variant="primary" onClick="{{ dlg.confirm }}" hint-size="130px,40px">Add to library</x-import>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;right:24px;bottom:24px;z-index:200"><x-import component-from-global-scope="LoftDesignSystem_9aea7b.Toast" actions="{{ toast.actions }}" hint-size="240px,52px">{{ toast.msg }}</x-import></div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;navLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;split&quot;,&quot;switch&quot;],&quot;default&quot;:&quot;split&quot;,&quot;tsType&quot;:&quot;'split'|'switch'&quot;,&quot;section&quot;:&quot;Layout options&quot;},&quot;folderLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;list&quot;,&quot;grid&quot;],&quot;default&quot;:&quot;list&quot;,&quot;tsType&quot;:&quot;'list'|'grid'&quot;,&quot;section&quot;:&quot;Layout options&quot;},&quot;inboxLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;list&quot;,&quot;focus&quot;],&quot;default&quot;:&quot;list&quot;,&quot;tsType&quot;:&quot;'list'|'focus'&quot;,&quot;section&quot;:&quot;Layout options&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;tint&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;sky&quot;,&quot;sage&quot;,&quot;sand&quot;,&quot;lilac&quot;,&quot;blush&quot;],&quot;default&quot;:&quot;sky&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const H=48,T0=7,T1=17;
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DATES=[5,6,7,8,9,10,11];
+const fmtH=h=>Math.floor(h)+':'+(h%1?'30':'00');
+const FOLDERS=[
+{id:'y2627',name:'School year 2026/27',type:'School year',icon:'CalendarRange',parent:null},
+{id:'maths',name:'Maths',type:'Subject',icon:'Sigma',tint:'sky',parent:'y2627',teacher:'Mr Becker'},
+{id:'m-analysis',name:'Analysis',type:'Folder',icon:'Folder',parent:'maths'},
+{id:'m-stoch',name:'Stochastics',type:'Folder',icon:'Folder',parent:'maths'},
+{id:'m-hw',name:'Homework',type:'Folder',icon:'Folder',parent:'maths'},
+{id:'m-proj',name:'Survey project',type:'Project',icon:'Target',parent:'maths'},
+{id:'bio',name:'Biology',type:'Subject',icon:'Leaf',tint:'sage',parent:'y2627',teacher:'Ms Okafor'},
+{id:'b-cells',name:'Cells',type:'Folder',icon:'Folder',parent:'bio'},
+{id:'eng',name:'English',type:'Subject',icon:'BookOpen',tint:'lilac',parent:'y2627',teacher:'Ms Hale'},
+{id:'hist',name:'History',type:'Subject',icon:'Landmark',tint:'sand',parent:'y2627',teacher:'Mr Lindqvist'},
+{id:'phys',name:'Physics',type:'Subject',icon:'Atom',tint:'blush',parent:'y2627',teacher:'Ms Romero'},
+{id:'y2526',name:'School year 2025/26',type:'School year',icon:'Archive',parent:null,archived:true},
+{id:'library',name:'Library',type:'Library',icon:'Library',parent:null},
+{id:'l-maths',name:'Mathematics',type:'Library area',icon:'Sigma',tint:'sky',parent:'library',linked:'maths'},
+{id:'l-bio',name:'Biology',type:'Library area',icon:'Leaf',tint:'sage',parent:'library',linked:'bio'},
+{id:'l-eng',name:'English',type:'Library area',icon:'BookOpen',tint:'lilac',parent:'library',linked:'eng'},
+{id:'l-hist',name:'History',type:'Library area',icon:'Landmark',tint:'sand',parent:'library',linked:'hist'},
+{id:'l-phys',name:'Physics',type:'Library area',icon:'Atom',tint:'blush',parent:'library',linked:'phys'}
+];
+const LESSONS=[['maths',0,8,9.5,'R 204'],['eng',0,11,12.5,'R 112'],['bio',1,9,10.5,'Lab 2'],['phys',1,13,14.5,'Lab 1'],['eng',2,8,9.5,'R 112'],['hist',2,10,11.5,'R 008'],['phys',3,8,9.5,'Lab 1'],['maths',3,10,11.5,'R 204'],['bio',4,11,12.5,'Lab 2'],['hist',4,13,14,'R 008']].map(([sub,day,start,end,room])=>({sub,day,start,end,room}));
+const KIND_ICON={'Lesson notes':'PenLine','Note':'StickyNote','PDF':'FileText','Deck':'Layers','Word':'FileType'};
+const NOTE_KINDS=['Lesson notes','Note'];
+const DOCS=[
+{id:'n1',title:'Chain rule',kind:'Lesson notes',date:'Thu, Oct 1',edited:'Thu',folder:'m-analysis',status:'open'},
+{id:'p1',title:'Derivatives worksheet.pdf',kind:'PDF',edited:'Thu',folder:'m-analysis'},
+{id:'k1',title:'Derivative rules',kind:'Deck',deck:'d1',edited:'Fri',folder:'m-analysis'},
+{id:'n3',title:'Power rule',kind:'Lesson notes',date:'Mon, Sep 28',edited:'Sep 28',folder:'m-analysis',status:'integrated'},
+{id:'n4',title:'Tree diagrams',kind:'Lesson notes',date:'Tue, Sep 29',edited:'Yesterday',folder:'m-stoch',status:'changed'},
+{id:'n8',title:'Test dates',kind:'Note',edited:'Sep 21',folder:'maths',status:'declined',lib:'no'},
+{id:'p2',title:'Survey plan.docx',kind:'Word',edited:'Sep 30',folder:'m-proj'},
+{id:'n5',title:'Cell membrane',kind:'Lesson notes',date:'Tue, Sep 29',edited:'Tue',folder:'b-cells',status:'open'},
+{id:'k2',title:'Cell organelles',kind:'Deck',deck:'d2',edited:'Sep 24',folder:'b-cells'},
+{id:'n6',title:'Macbeth, Act 1',kind:'Lesson notes',date:'Wed, Sep 30',edited:'Wed',folder:'eng',status:'open'},
+{id:'k3',title:'Macbeth quotes',kind:'Deck',deck:'d3',edited:'Sep 30',folder:'eng'},
+{id:'n7',title:'Velocity',kind:'Lesson notes',date:'Thu, Oct 1',edited:'Thu',folder:'phys',status:'open'},
+{id:'n9',title:'Causes of WW1',kind:'Lesson notes',date:'Wed, Sep 30',edited:'Wed',folder:'hist',status:'integrated'}
+];
+const BLOCKS={
+n1:[{t:'h2',x:'When to use it'},{t:'p',x:'Use the chain rule when one function sits inside another: f(x) = g(h(x)).'},{t:'callout',x:'f′(x) = g′(h(x)) · h′(x). Outer derivative times inner derivative.'},{t:'h2',x:'Examples from the board'},{t:'ul',x:'f(x) = (3x + 1)⁵ → f′(x) = 5(3x + 1)⁴ · 3 = 15(3x + 1)⁴'},{t:'gap',x:'second example from the board',sugg:'f(x) = (2x² + 1)³ → f′(x) = 3(2x² + 1)² · 4x = 12x(2x² + 1)²',src:'From Derivatives worksheet.pdf, task 2 (same day)'},{t:'h2',x:'Organisation'},{t:'p',x:'Test on Friday: power rule, chain rule, product rule.'}],
+n3:[{t:'p',x:'For f(x) = xⁿ the derivative is f′(x) = n·xⁿ⁻¹.'},{t:'callout',x:'Bring the exponent down, then reduce it by one.'},{t:'ul',x:'f(x) = x³ → f′(x) = 3x²'}],
+n4:[{t:'p',x:'Multiply along a branch, add across branches.'},{t:'h2',x:'Added on Sunday'},{t:'ul',x:'Two coin tosses: P(HH) = ½ · ½ = ¼'}],
+n5:[{t:'p',x:'The cell membrane is a phospholipid bilayer with embedded proteins.'},{t:'ul',x:'Passive transport: diffusion, osmosis'},{t:'ul',x:'Active transport needs energy (ATP)'},{t:'gap',x:'labels for the membrane diagram',alt:'Phospholipid head, fatty acid tail, channel protein, carrier protein',src:'From Cell membrane worksheet, figure 1'}],
+n6:[{t:'p',x:'The witches greet Macbeth as Thane of Cawdor and future king.'},{t:'callout',x:'Theme: ambition and what it costs.'},{t:'ul',x:'Lady Macbeth questions his courage (1.7)'}],
+n7:[{t:'p',x:'Velocity is displacement per time: v = s / t.'},{t:'callout',x:'Unit m/s. Divide km/h by 3.6 to get m/s.'}],
+n8:[{t:'p',x:'Maths test Fri, Oct 9. Physics test Wed, Oct 7.'}],
+n9:[{t:'p',x:'Long-term causes: militarism, alliances, imperialism, nationalism.'},{t:'ul',x:'Trigger: assassination in Sarajevo, June 1914'}]
+};
+const PROPOSALS={
+n1:{topic:'Mathematics / Analysis / Derivatives',add:['Chain rule: outer derivative times inner derivative','Worked examples (3x + 1)⁵ and (2x² + 1)³'],existing:['Notation f′(x)','Power rule'],skip:['Test on Friday (organisational)'],derived:{label:'Create the event “Maths test” on Fri, Oct 9',exam:{id:'e2',title:'Maths test',sub:'maths',day:4}}},
+n4:{topic:'Mathematics / Stochastics / Probability',add:['New since last time: two coin tosses, P(HH) = ¼'],existing:['Multiply along a branch, add across branches'],skip:[]},
+n5:{topic:'Biology / Cells / Cell membrane',add:['Phospholipid bilayer with embedded proteins','Passive and active transport'],existing:[],skip:[]},
+n6:{topic:'English / Literature / Macbeth',add:['Act 1: the prophecy','Theme: ambition and what it costs'],existing:['Lady Macbeth (character)'],skip:[]},
+n7:{topic:'Physics / Mechanics / Velocity',add:['v = s / t','Converting km/h to m/s'],existing:[],skip:[]}
+};
+const DECKS=[
+{id:'d1',name:'Derivative rules',folder:'m-analysis',due:4,cards:[
+{q:'Power rule: f(x) = xⁿ. What is f′(x)?',a:'f′(x) = n·xⁿ⁻¹',sec:'Derivatives › Power rule'},
+{q:'Chain rule: f(x) = g(h(x)). What is f′(x)?',a:'f′(x) = g′(h(x)) · h′(x)',sec:'Derivatives › Chain rule'},
+{q:'Differentiate f(x) = (3x + 1)⁵',a:'f′(x) = 15(3x + 1)⁴',sec:'Derivatives › Chain rule'},
+{q:'What is the derivative of sin(x)?',a:'cos(x)',sec:'Derivatives › Trigonometric functions'},
+{q:'What is the derivative of eˣ?',a:'eˣ',sec:'Derivatives › Exponential functions'},
+{q:'Product rule: f(x) = u(x) · v(x). What is f′(x)?',a:'f′ = u′v + uv′',sec:'Derivatives › Product rule'}]},
+{id:'d2',name:'Cell organelles',folder:'b-cells',due:3,cards:[
+{q:'What do mitochondria do?',a:'Cellular respiration: they release energy as ATP',sec:'Cells › Organelles'},
+{q:'Where are proteins made?',a:'At the ribosomes',sec:'Cells › Organelles'},
+{q:'What does the nucleus contain?',a:'The DNA. It controls the cell.',sec:'Cells › Organelles'},
+{q:'What does the cell membrane control?',a:'What enters and leaves the cell',sec:'Cells › Cell membrane'}]},
+{id:'d3',name:'Macbeth quotes',folder:'eng',due:0,cards:[
+{q:'“Fair is foul, and foul is fair.” Who says it?',a:'The witches, Act 1 Scene 1',sec:'Macbeth › Act 1'},
+{q:'“Look like th’ innocent flower, but be the serpent under’t.” Who says it, to whom?',a:'Lady Macbeth to Macbeth, Act 1 Scene 5',sec:'Macbeth › Lady Macbeth'},
+{q:'“Is this a dagger which I see before me?” Which act?',a:'Act 2 Scene 1, Macbeth',sec:'Macbeth › Act 2'}]}
+];
+const TODOS=[
+{id:'t3',title:'Lab report: osmosis',kind:'Homework',folder:'b-cells',due:'Fri, Oct 2',bucket:'overdue',status:'inprogress',subs:[{x:'Write up the method',done:true},{x:'Results table',done:false},{x:'Conclusion',done:false}]},
+{id:'t9',title:'Velocity worksheet',kind:'Homework',folder:'phys',due:'Sat, Oct 3',bucket:'overdue',status:'open',subs:[]},
+{id:'t2',title:'Read Macbeth Act 2',kind:'Homework',folder:'eng',due:'Today',bucket:'today',status:'open',subs:[]},
+{id:'t6',title:'Bring signed trip form',kind:'Todo',folder:'hist',due:'Today',bucket:'today',status:'open',subs:[]},
+{id:'t4',title:'Draft survey questions',kind:'Todo',folder:'m-proj',due:'Wed',bucket:'upcoming',status:'open',subs:[{x:'10 questions max',done:false},{x:'Ask Mr Becker for feedback',done:false}]},
+{id:'t7',title:'Timeline: causes of WW1',kind:'Homework',folder:'hist',due:'Wed',bucket:'upcoming',status:'open',subs:[]},
+{id:'t1',title:'Exercises p. 84, no. 3–7',kind:'Homework',folder:'m-hw',due:'Thu',bucket:'upcoming',status:'open',subs:[]},
+{id:'t5',title:'Revise chain rule for the test',kind:'Todo',folder:'m-analysis',due:'Thu',bucket:'upcoming',status:'open',subs:[],sched:{day:2,start:16}},
+{id:'t8',title:'Vocabulary list 4',kind:'Homework',folder:'eng',due:'Sep 30',bucket:'past',status:'done',subs:[]}
+];
+const LIB={y2627:'no',maths:'yes',bio:'yes',eng:'yes',hist:'yes',phys:'yes','m-hw':'no',y2526:'no',library:'no'};
+const ST={open:{label:'Open',tone:'neutral'},done:{label:'Done',tone:'accent'},integrated:{label:'In library',tone:'success'},changed:{label:'Changed',tone:'warning'},declined:{label:'Not added',tone:'neutral'}};
+const NAV=[['inbox','Inbox','Inbox'],['notes','Notes','NotebookPen'],['cards','Flashcards','Layers'],['todos','Todos','ListChecks'],['calendar','Calendar','CalendarDays']];
+const CYCLE={inherit:'yes',yes:'no',no:'inherit'};
+
+class Component extends DCLogic {
+  mainRef=React.createRef();
+  state={view:'inbox',folder:'maths',note:'n1',navTab:'work',open:{y2627:true,maths:true},docs:DOCS,todos:TODOS,blocks:BLOCKS,exams:[{id:'e1',title:'Physics test',sub:'phys',day:2}],lib:LIB,later:[],todoTab:'open',todoSub:'all',todoSel:null,newTodo:'',newSub:'',session:null,calMode:'week',calDay:0,dialog:null,toast:null,menu:false};
+  f(id){return FOLDERS.find(x=>x.id===id)}
+  sub(id){let f=this.f(id);while(f&&!f.tint)f=this.f(f.parent);return f}
+  base(){return this.props.tint??'sky'}
+  tintOf(id){const s=this.sub(id);return s?s.tint:this.base()}
+  path(id){const p=[];let f=this.f(id);while(f){p.unshift(f);f=this.f(f.parent)}return p}
+  desc(id){const out=[id];FOLDERS.filter(c=>c.parent===id).forEach(c=>out.push(...this.desc(c.id)));return out}
+  libOf(id){const v=this.state.lib[id]||'inherit';if(v!=='inherit')return{v,eff:v};const f=this.f(id);if(!f||!f.parent)return{v,eff:'no'};return{v,eff:this.libOf(f.parent).eff}}
+  libLabel(v,eff){return v==='inherit'?'Library: like parent ('+eff+')':'Library: '+v}
+  docLib(d){if(d.lib&&d.lib!=='inherit')return{v:d.lib,eff:d.lib};return{v:'inherit',eff:this.libOf(d.folder).eff}}
+  toast(msg,actions=[]){this.setState({toast:{msg,actions}});clearTimeout(this._t);this._t=setTimeout(()=>this.setState({toast:null}),3600)}
+  undoable(msg,undo){this.toast(msg,[{label:'Undo',onClick:()=>{undo();this.setState({toast:null})}}])}
+  go(view,extra={}){this.setState({view,menu:false,...extra});if(this.mainRef.current)this.mainRef.current.scrollTop=0}
+  updDoc(id,p){this.setState(s=>({docs:s.docs.map(d=>d.id===id?{...d,...p}:d)}))}
+  updTodo(id,p){this.setState(s=>({todos:s.todos.map(t=>t.id===id?{...t,...p}:t)}))}
+  setBlocks(id,fn){this.setState(s=>({blocks:{...s.blocks,[id]:fn(s.blocks[id]||[])}}))}
+  openDoc(d){if(d.kind==='Deck')this.startDeck(d.deck);else if(NOTE_KINDS.includes(d.kind))this.go('note',{note:d.id});else this.toast('File previews aren’t part of this prototype')}
+  startDeck(id){this.go('cards',{session:{deck:id,i:0,revealed:false,answer:'',results:[]}})}
+  setSess(p){this.setState(s=>({session:{...s.session,...p}}))}
+  proposal(d){if(PROPOSALS[d.id])return PROPOSALS[d.id];const sb=this.sub(d.folder),lf=FOLDERS.find(f=>f.linked===(sb&&sb.id)),fo=this.f(d.folder);return{topic:[lf?lf.name:'Library',fo.type==='Subject'?'General':fo.name,d.title].join(' / '),add:['Contents of “'+d.title+'”'],existing:[],skip:[]}}
+  reviewDocs(){const s=this.state;return s.docs.filter(d=>(d.status==='open'||d.status==='changed')&&this.docLib(d).eff==='yes'&&!s.later.includes(d.id))}
+  markDone(id){const d=this.state.docs.find(x=>x.id===id);const pr=this.proposal(d);this.updDoc(id,{status:'done'});this.setState({dialog:{doc:id,prev:d.status,sel:pr.add.map(()=>true),derived:true}})}
+  decline(id){const prev=this.state.docs.find(x=>x.id===id).status;this.updDoc(id,{status:'declined'});this.undoable('Not added to library',()=>this.updDoc(id,{status:prev}))}
+  later(id){this.setState(s=>({later:[...s.later,id]}));this.undoable('Moved to later',()=>this.setState(s=>({later:s.later.filter(x=>x!==id)})))}
+  toggleTodo(id){const t=this.state.todos.find(x=>x.id===id);const prev=t.status;const next=prev==='done'?'open':'done';this.updTodo(id,{status:next});if(next==='done')this.undoable('Marked as done',()=>this.updTodo(id,{status:prev}))}
+  newNote(fid){const id='n'+Date.now();const sb=this.sub(fid);const doc={id,title:sb?'Lesson notes, '+sb.name:'Untitled',kind:sb?'Lesson notes':'Note',date:'Mon, Oct 5',edited:'Just now',folder:fid,status:'open'};this.setState(s=>({docs:[doc,...s.docs],blocks:{...s.blocks,[id]:[{t:'p',x:'Start typing here.'}]}}));this.go('note',{note:id})}
+  drop(e,di){e.preventDefault();const id=this._drag;if(!id)return;const r=e.currentTarget.getBoundingClientRect();let st=T0+Math.floor((e.clientY-r.top)/H*2)/2;st=Math.max(T0,Math.min(T1-1,st));this.updTodo(id,{sched:{day:di,start:st}});this._drag=null;this.toast('Planned for '+DAYS[di]+' '+fmtH(st))}
+  docVM(d){const st=ST[d.status];const sb=this.sub(d.folder);return{...d,icon:KIND_ICON[d.kind]||'File',tint:sb?sb.tint:this.base(),meta:d.kind+' · '+d.edited,hasStatus:!!st,statusLabel:st?st.label:'',tone:st?st.tone:'neutral',where:this.path(d.folder).slice(1).map(f=>f.name).join(' / '),open:()=>this.openDoc(d)}}
+  todoVM(t){const sb=this.sub(t.folder),f=this.f(t.folder),done=t.status==='done',late=t.bucket==='overdue'&&!done;const sd=t.subs.filter(x=>x.done).length;return{...t,done,isHw:t.kind==='Homework',inProg:t.status==='inprogress',folderName:f?f.name:'',tint:sb?sb.tint:this.base(),meta:[t.kind==='Homework'?'Homework':null,f?f.name:'',t.due].filter(Boolean).join(' · '),dueColor:late?'var(--danger)':'var(--text-muted)',titleColor:done?'var(--text-muted)':'var(--text-primary)',strike:done?'line-through':'none',hasSubs:t.subs.length>0,subCount:sd+'/'+t.subs.length,toggle:()=>this.toggleTodo(t.id),open:()=>this.go('todos',{todoSel:t.id,todoTab:done?'done':'open'}),select:()=>this.setState({todoSel:t.id}),canMove:late,moveToday:()=>this.updTodo(t.id,{bucket:'today',due:'Today'}),bg:this.state.todoSel===t.id?'var(--surface-selected)':'transparent'}}
+
+  renderVals(){
+    const s=this.state,P=this.props,v=s.view,base=this.base();
+    const navMode=P.navLayout??'split',folderLayout=P.folderLayout??'list',inboxLayout=P.inboxLayout??'list';
+    const curNote=s.docs.find(d=>d.id===s.note);
+    const ctx=v==='folder'?s.folder:v==='note'&&curNote?curNote.folder:v==='cards'&&s.session?DECKS.find(d=>d.id===s.session.deck).folder:null;
+    const review=this.reviewDocs();
+    const openTodos=s.todos.filter(t=>t.status!=='done');
+    // sidebar
+    const workRows=NAV.map(([id,label,icon])=>{const a=v===id||(id==='notes'&&v==='note');const c=id==='inbox'?review.length+openTodos.filter(t=>t.bucket==='today'||t.bucket==='overdue').length:0;return{label,icon,count:c,hasCount:c>0,bg:a?'var(--surface-selected)':'transparent',color:a?'var(--text-primary)':'var(--text-secondary)',onClick:()=>this.go(id,id==='cards'?{session:null}:{})}});
+    const treeRows=[];
+    const walk=(pid,d)=>FOLDERS.filter(f=>f.parent===pid).forEach(f=>{const kids=FOLDERS.some(c=>c.parent===f.id),open=!!s.open[f.id],a=v==='folder'&&s.folder===f.id,sb=this.sub(f.id);treeRows.push({name:f.name,icon:f.icon,pad:(4+d*14)+'px',hasKids:kids,noKids:!kids,caret:open?'ChevronDown':'ChevronRight',tint:sb?sb.tint:base,iconColor:sb?'var(--accent)':'var(--text-muted)',bg:a?'var(--surface-selected)':'transparent',color:f.archived?'var(--text-muted)':a?'var(--text-primary)':'var(--text-secondary)',toggle:e=>{e.stopPropagation();this.setState(st=>({open:{...st.open,[f.id]:!st.open[f.id]}}))},onClick:()=>{this.setState(st=>({open:{...st.open,[f.id]:true}}));this.go('folder',{folder:f.id})}});if(kids&&open)walk(f.id,d+1)});
+    walk(null,0);
+    // crumbs
+    const fc=id=>this.path(id).map(f=>({label:f.name,onClick:()=>this.go('folder',{folder:f.id})}));
+    let crumbs=v==='folder'?fc(s.folder):v==='note'&&curNote?[...fc(curNote.folder),{label:curNote.title,onClick:()=>{}}]:[{label:{inbox:'Inbox',notes:'Notes',cards:'Flashcards',todos:'Todos',calendar:'Calendar'}[v],onClick:()=>{}}];
+    crumbs=crumbs.map((c,i)=>({...c,notFirst:i>0,color:i===crumbs.length-1?'var(--text-primary)':'var(--text-secondary)'}));
+    // inbox
+    const bucket=(b,label,color)=>{const items=openTodos.filter(t=>t.bucket===b).map(t=>this.todoVM(t));return{label,labelColor:color,count:items.length,items,empty:!items.length}};
+    const dueCols=[bucket('overdue','Overdue','var(--danger)'),bucket('today','Today','var(--text-primary)'),bucket('upcoming','This week','var(--text-muted)')];
+    const rv=d=>({...this.docVM(d),done:()=>this.markDone(d.id),decline:()=>this.decline(d.id),later:()=>this.later(d.id)});
+    const gm={};review.forEach(d=>{const sb=this.sub(d.folder),k=sb?sb.id:'x';(gm[k]=gm[k]||{name:sb?sb.name:'Other',icon:sb?sb.icon:'Folder',tint:sb?sb.tint:base,items:[]}).items.push(rv(d))});
+    const reviewGroups=Object.values(gm).map(g=>({...g,count:g.items.length}));
+    const fd=review[0];
+    const focus=fd?{...rv(fd),subject:(this.sub(fd.folder)||{}).name||'',counter:'1 of '+review.length,preview:(s.blocks[fd.id]||[]).filter(b=>b.t!=='h2'&&b.t!=='gap').slice(0,3).map(b=>b.x),openIt:()=>this.openDoc(fd)}:{preview:[]};
+    // folder
+    let fv={items:[],todos:[],events:[]};
+    if(v==='folder'){
+      const F=this.f(s.folder),D=this.desc(s.folder),isLib=F.type==='Library'||F.type==='Library area';
+      const lib=this.libOf(F.id);
+      const subs=FOLDERS.filter(c=>c.parent===F.id).map(c=>{const n=s.docs.filter(d=>this.desc(c.id).includes(d.folder)).length;return{title:c.name,icon:c.icon,tint:this.tintOf(c.id),meta:c.type+' · '+n+(n===1?' file':' files'),hasStatus:false,open:()=>{this.setState(st=>({open:{...st.open,[F.id]:true}}));this.go('folder',{folder:c.id})}}});
+      const files=F.linked?s.docs.filter(d=>d.status==='integrated'&&this.desc(F.linked).includes(d.folder)).map(d=>({...this.docVM(d),meta:this.path(d.folder).slice(1).map(x=>x.name).join(' / ')})):s.docs.filter(d=>d.folder===F.id).map(d=>this.docVM(d));
+      const items=[...subs,...files];
+      const td=openTodos.filter(t=>D.includes(t.folder)).map(t=>this.todoVM(t));
+      const ev=[...LESSONS.filter(l=>D.includes(l.sub)).map(l=>({k:l.day*100+l.start,when:DAYS[l.day]+' '+fmtH(l.start),title:this.f(l.sub).name+' · '+l.room,isExam:false})),...s.exams.filter(e=>D.includes(e.sub)).map(e=>({k:e.day*100,when:DAYS[e.day]+' '+DATES[e.day],title:e.title,isExam:true}))].sort((a,b)=>a.k-b.k).slice(0,5);
+      const label=F.type==='Subject'?['Subject',F.teacher,LESSONS.filter(l=>l.sub===F.id).map(l=>DAYS[l.day]).join(', ')].join(' · '):F.type==='Library area'?'Library · sources from '+this.f(F.linked).name:F.archived?F.type+' · archived':F.parent?F.type+' in '+this.f(F.parent).name:F.type;
+      fv={name:F.name,icon:F.icon,tint:this.tintOf(F.id),label,canAdd:!isLib,hasLib:!isLib,libLabel:this.libLabel(lib.v,lib.eff),cycleLib:()=>this.setState(st=>({lib:{...st.lib,[F.id]:CYCLE[lib.v]}})),newNote:()=>this.newNote(F.id),showOverview:!isLib,todos:td,todoCount:td.length,noTodos:!td.length,events:ev,noEvents:!ev.length,filesTitle:F.linked?'Sources':'Files',items,itemCount:items.length,listMode:folderLayout==='list'&&items.length>0,gridMode:folderLayout==='grid'&&items.length>0,empty:!items.length,emptyText:F.linked?'Nothing here yet. Notes you add to the library show up here as sources.':'This folder is empty.'};
+    }
+    // note
+    let nv={blocks:[]};
+    if(v==='note'&&curNote){
+      const d=this.docVM(curNote),dl=this.docLib(curNote),sb=this.sub(curNote.folder),id=curNote.id;
+      const blocks=(s.blocks[id]||[]).map((b,i)=>{const set=p=>this.setBlocks(id,bs=>bs.map((x,j)=>j===i?{...x,...p}:x));return{...b,isH2:b.t==='h2',isP:b.t==='p',isUl:b.t==='ul',isCallout:b.t==='callout',isGap:b.t==='gap',isAi:!!b.ai,color:b.x==='Start typing here.'?'var(--text-faint)':'var(--text-primary)',hasSugg:!!b.sugg,canAsk:b.t==='gap'&&!b.sugg&&!b.asking,asking:!!b.asking,accept:()=>{set({t:'p',x:b.sugg,ai:true,sugg:null});this.toast('Suggestion added')},dismiss:()=>set({sugg:null,alt:b.alt||b.sugg}),ask:()=>{set({asking:true});setTimeout(()=>set({asking:false,sugg:b.alt||'Couldn’t find this in your materials. Ask a classmate or check the worksheet.'}),900)}}});
+      nv={...d,label:[curNote.kind,curNote.date||curNote.edited,sb?sb.name:''].filter(Boolean).join(' · '),libLabel:this.libLabel(dl.v,dl.eff),cycleLib:()=>this.updDoc(id,{lib:CYCLE[dl.v]}),canDone:(curNote.status==='open'||curNote.status==='changed')&&dl.eff==='yes',done:()=>this.markDone(id),isIntegrated:curNote.status==='integrated',topic:'In library · '+this.proposal(curNote).topic,statusLabel:d.statusLabel||'No status',blocks,menuOpen:s.menu,toggleMenu:()=>this.setState(st=>({menu:!st.menu})),rename:e=>this.updDoc(id,{title:e.target.textContent||'Untitled'}),addBlock:it=>{this.setState({menu:false});this.setBlocks(id,bs=>[...bs,{t:it.value,x:{p:'New paragraph',h2:'Heading',ul:'List item',callout:'Something to remember',gap:'something from class'}[it.value]}])}};
+    }
+    const allNotes=s.docs.filter(d=>NOTE_KINDS.includes(d.kind)).map(d=>this.docVM(d));
+    // cards
+    const decks=DECKS.map(d=>({...d,tint:this.tintOf(d.folder),where:this.path(d.folder).slice(1).map(f=>f.name).join(' / '),countLabel:d.cards.length+' cards · '+(d.due?d.due+' due':'none due'),btnVariant:d.due?'primary':'secondary',study:()=>this.startDeck(d.id)}));
+    let sess={};
+    if(s.session){
+      const S=s.session,dk=DECKS.find(d=>d.id===S.deck),n=dk.cards.length,fin=S.i>=n,c=dk.cards[Math.min(S.i,n-1)];
+      const right=S.results.filter(Boolean).length;
+      sess={deckName:dk.name,tint:this.tintOf(dk.folder),counter:Math.min(S.i+1,n)+' / '+n,pct:(Math.min(S.i,n)/n*100)+'%',q:c.q,a:c.a,sec:c.sec,revealed:S.revealed,notRevealed:!S.revealed,answer:S.answer,hasAnswer:!!S.answer.trim(),finished:fin,notFinished:!fin,score:right+' of '+n+' right',wrongList:dk.cards.filter((x,i)=>S.results[i]===false).map(x=>x.q),hasWrong:S.results.some(r=>r===false),
+        onAnswer:e=>this.setSess({answer:e.target.value}),answerKey:e=>{if(e.key==='Enter')this.setSess({revealed:true})},reveal:()=>this.setSess({revealed:true}),
+        right:()=>this.setSess({results:[...S.results,true],i:S.i+1,revealed:false,answer:''}),wrong:()=>this.setSess({results:[...S.results,false],i:S.i+1,revealed:false,answer:''}),
+        again:()=>this.startDeck(dk.id),exit:()=>this.setState({session:null})};
+    }
+    // todos
+    const subjects=FOLDERS.filter(f=>f.type==='Subject');
+    const subjectTags=[{label:'All',sel:s.todoSub==='all',pick:()=>this.setState({todoSub:'all'})},...subjects.map(f=>({label:f.name,sel:s.todoSub===f.id,pick:()=>this.setState({todoSub:f.id})}))];
+    const todoList=s.todos.filter(t=>(s.todoTab==='done'?t.status==='done':t.status!=='done')&&(s.todoSub==='all'||this.desc(s.todoSub).includes(t.folder))).map(t=>this.todoVM(t));
+    const selT=s.todos.find(t=>t.id===s.todoSel);
+    let det={subs:[]};
+    if(selT){const vm=this.todoVM(selT);det={...vm,path:this.path(selT.folder).slice(1).map(f=>f.name).join(' / '),schedLabel:selT.sched?DAYS[selT.sched.day]+', Oct '+DATES[selT.sched.day]+' · '+fmtH(selT.sched.start):'Not planned',schedBtn:selT.sched?'Show in calendar':'Plan for today, 15:00',
+      schedule:()=>{if(selT.sched)this.go('calendar',{calMode:'week'});else{this.updTodo(selT.id,{sched:{day:0,start:15}});this.toast('Planned for Mon 15:00')}},
+      setStatus:x=>this.updTodo(selT.id,{status:x}),close:()=>this.setState({todoSel:null}),
+      subs:selT.subs.map((x,i)=>({...x,toggle:()=>this.updTodo(selT.id,{subs:selT.subs.map((y,j)=>j===i?{...y,done:!y.done}:y)})}))};}
+    // calendar
+    const idxs=s.calMode==='week'?[0,1,2,3,4,5,6]:[s.calDay];
+    const calCols=idxs.map(di=>{const today=di===0;return{dow:DAYS[di],date:DATES[di],headColor:today?'var(--text-primary)':'var(--text-secondary)',dateBg:today?'var(--accent)':'transparent',dateColor:today?'var(--on-accent)':'inherit',colBg:di>4?'var(--surface-raised)':'transparent',
+      pick:()=>this.setState({calMode:'day',calDay:di}),
+      exams:s.exams.filter(e=>e.day===di).map(e=>({title:e.title,tint:this.tintOf(e.sub)})),
+      events:[...LESSONS.filter(l=>l.day===di).map(l=>{const f=this.f(l.sub);return{title:f.name,meta:fmtH(l.start)+'–'+fmtH(l.end)+' · '+l.room,top:(l.start-T0)*H+'px',height:((l.end-l.start)*H-3)+'px',tint:f.tint,bg:'var(--accent-wash)',ring:'none',draggable:'false',onDragStart:()=>{},onClick:()=>this.go('folder',{folder:f.id})}}),
+        ...s.todos.filter(t=>t.sched&&t.sched.day===di&&t.status!=='done').map(t=>({title:t.title,meta:fmtH(t.sched.start)+' · '+(this.f(t.folder)||{}).name,top:(t.sched.start-T0)*H+'px',height:(H-3)+'px',tint:this.tintOf(t.folder),bg:'var(--surface-card)',ring:'inset 0 0 0 1.5px var(--accent-soft)',draggable:'true',onDragStart:()=>{this._drag=t.id},onClick:()=>this.go('todos',{todoSel:t.id,todoTab:'open'})}))],
+      onDragOver:e=>e.preventDefault(),onDrop:e=>this.drop(e,di)}});
+    const hours=[];for(let h=T0;h<T1;h++)hours.push({label:h+':00',top:((h-T0)*H)+'px'});
+    const unscheduled=openTodos.filter(t=>!t.sched).map(t=>({...this.todoVM(t),onDragStart:()=>{this._drag=t.id}}));
+    const dlgDoc=s.dialog&&s.docs.find(d=>d.id===s.dialog.doc);
+    let dlg={add:[],existing:[],skip:[]};
+    if(dlgDoc){const pr=this.proposal(dlgDoc),D=s.dialog;
+      dlg={title:dlgDoc.title,tint:this.tintOf(dlgDoc.folder),topic:pr.topic,add:pr.add.map((x,i)=>({x,checked:D.sel[i],toggle:()=>this.setState(st=>({dialog:{...st.dialog,sel:st.dialog.sel.map((y,j)=>j===i?!y:y)}}))})),existing:pr.existing,hasExisting:pr.existing.length>0,skip:pr.skip,hasSkip:pr.skip.length>0,hasDerived:!!pr.derived,derivedLabel:pr.derived?pr.derived.label:'',derivedChecked:D.derived,toggleDerived:()=>this.setState(st=>({dialog:{...st.dialog,derived:!st.dialog.derived}})),
+        cancel:()=>{this.updDoc(dlgDoc.id,{status:D.prev});this.setState({dialog:null})},
+        confirm:()=>{const ex=pr.derived&&D.derived&&!s.exams.some(e=>e.id===pr.derived.exam.id)?pr.derived.exam:null;this.updDoc(dlgDoc.id,{status:'integrated'});this.setState(st=>({dialog:null,exams:ex?[...st.exams,ex]:st.exams}));this.undoable(ex?'Added to library · Maths test created':'Added to library',()=>{this.updDoc(dlgDoc.id,{status:D.prev});if(ex)this.setState(st=>({exams:st.exams.filter(e=>e.id!==ex.id)}))})}};}
+    return {
+      theme:P.dark?'dark':'light',baseTint:base,screenTint:ctx?this.tintOf(ctx):base,mainRef:this.mainRef,stop:e=>e.stopPropagation(),
+      navSwitch:navMode==='switch',navSplit:navMode!=='switch',navTabs:[{value:'work',label:'Workstation'},{value:'files',label:'Files'}],navTab:s.navTab,setNavTab:x=>this.setState({navTab:x}),
+      showWork:navMode!=='switch'||s.navTab==='work',showFiles:navMode!=='switch'||s.navTab==='files',workRows,treeRows,crumbs,
+      isInbox:v==='inbox',isFolder:v==='folder',isNotes:v==='notes',isNote:v==='note'&&!!curNote,isCards:v==='cards',isTodos:v==='todos',isCalendar:v==='calendar',
+      todayLabel:'Monday, Oct 5',dueCount:openTodos.filter(t=>t.bucket!=='none').length,dueCols,reviewCount:review.length,reviewEmpty:!review.length,inboxList:inboxLayout!=='focus',inboxFocus:inboxLayout==='focus',reviewGroups,hasFocus:!!fd,focus,
+      fv,nv,notesCount:allNotes.length,allNotes,
+      blockMenu:[{section:'Insert'},{label:'Text',value:'p'},{label:'Heading',value:'h2',shortcut:'##'},{label:'Bulleted list',value:'ul',shortcut:'-'},{label:'Callout',value:'callout'},{label:'Mark a gap',value:'gap',shortcut:'??'}],
+      decks,dueTotal:DECKS.reduce((a,d)=>a+d.due,0),noSession:!s.session,inSession:!!s.session,sess,
+      todoOpenCount:openTodos.length,todoTabs:[{value:'open',label:'To do'},{value:'done',label:'Done'}],todoTab:s.todoTab,setTodoTab:x=>this.setState({todoTab:x,todoSel:null}),subjectTags,todoList,todoEmpty:!todoList.length,
+      todoCols:selT?'minmax(0,1fr) 340px':'minmax(0,1fr)',hasDetail:!!selT,det,statusTabs:[{value:'open',label:'Open'},{value:'inprogress',label:'In progress'},{value:'done',label:'Done'}],
+      newTodo:s.newTodo,onNewTodo:e=>this.setState({newTodo:e.target.value}),
+      newTodoKey:e=>{if(e.key!=='Enter'||!s.newTodo.trim())return;const fid=s.todoSub==='all'?'y2627':s.todoSub;const t={id:'t'+Date.now(),title:s.newTodo.trim(),kind:'Todo',folder:fid,due:'No date',bucket:'none',status:'open',subs:[]};this.setState(st=>({todos:[t,...st.todos],newTodo:'',todoTab:'open'}));this.toast('Added to '+this.f(fid).name)},
+      newSub:s.newSub,onNewSub:e=>this.setState({newSub:e.target.value}),
+      newSubKey:e=>{if(e.key!=='Enter'||!s.newSub.trim()||!selT)return;this.updTodo(selT.id,{subs:[...selT.subs,{x:s.newSub.trim(),done:false}]});this.setState({newSub:''})},
+      calTabs:[{value:'day',label:'Day'},{value:'week',label:'Week'}],calMode:s.calMode,setCalMode:x=>this.setState({calMode:x}),calIsDay:s.calMode==='day',
+      calRange:s.calMode==='week'?'Oct 5 – 11, 2026':DAYS[s.calDay]+', Oct '+DATES[s.calDay]+', 2026',
+      prevDay:()=>this.setState(st=>({calDay:Math.max(0,st.calDay-1)})),nextDay:()=>this.setState(st=>({calDay:Math.min(6,st.calDay+1)})),
+      colTemplate:'52px repeat('+idxs.length+',minmax(0,1fr))',gridH:((T1-T0)*H)+'px',calCols,hours,unscheduled,
+      hasDialog:!!dlgDoc,dlg,hasToast:!!s.toast,toast:s.toast||{actions:[]}
+    };
+  }
+}
+</script>
+</body>
+</html>
