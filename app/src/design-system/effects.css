@@ -1,0 +1,14 @@
+:root{
+--shadow-1:0 1px 2px rgba(18,18,17,.05),0 0 0 1px rgba(18,18,17,.05);
+--shadow-2:0 4px 16px rgba(18,18,17,.06),0 0 0 1px rgba(18,18,17,.04);
+--shadow-pop:0 12px 40px rgba(18,18,17,.12),0 2px 6px rgba(18,18,17,.06),0 0 0 1px rgba(18,18,17,.05);
+--blur-glass:saturate(1.4) blur(24px);/* @kind other */
+--feather:radial-gradient(closest-side,#000 62%,transparent);/* @kind other */
+--ease-out:cubic-bezier(.22,1,.36,1);/* @kind other */--ease-soft:cubic-bezier(.4,0,.2,1);/* @kind other */
+--dur-fast:160ms;/* @kind other */--dur-base:320ms;/* @kind other */--dur-slow:700ms;/* @kind other */
+--press-scale:.96;/* @kind other */
+--grain:radial-gradient(rgba(0,0,0,.06) 1px,transparent 1px);/* @kind other */--grain-size:3px;/* @kind spacing */
+--blur-window:blur(30px) saturate(1.6);/* @kind other */
+--shadow-window:inset 0 0 0 1px rgba(255,255,255,.8),0 40px 100px rgba(14,14,13,.22);
+}
+[data-theme="dark"]{--grain:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1px);/* @kind other */--shadow-window:inset 0 0 0 1px rgba(255,255,255,.12),0 40px 100px rgba(0,0,0,.6);--shadow-1:0 0 0 1px rgba(255,255,255,.06);--shadow-2:0 0 0 1px rgba(255,255,255,.07);--shadow-pop:0 16px 48px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}

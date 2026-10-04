@@ -1,0 +1,19 @@
+:root{
+--font-sans:'Hanken Grotesk','Helvetica Neue',system-ui,sans-serif;
+--font-display:var(--font-sans);
+--fw-display:600;/* @kind font */
+--font-mono:'IBM Plex Mono',ui-monospace,monospace;
+--fs-display-xl:168px;--fs-display-l:128px;--fs-display-m:64px;
+--fs-h1:44px;--fs-h2:32px;--fs-h3:22px;
+--fs-body-l:19px;--fs-body:16px;--fs-body-s:14px;--fs-caption:12px;
+--lh-tight:.9;/* @kind font */--lh-statement:1.16;/* @kind font */--lh-snug:1.25;/* @kind font */--lh-body:1.55;/* @kind font */
+--tracking-display:-0.06em;/* @kind font */--tracking-heading:-0.02em;/* @kind font */--tracking-ui:-0.005em;/* @kind font */
+--fw-regular:400;/* @kind font */--fw-medium:500;/* @kind font */--fw-semibold:600;/* @kind font */
+--type-display:var(--fw-display) var(--fs-display-l)/var(--lh-tight) var(--font-display);
+--type-statement:var(--fw-medium) var(--fs-display-m)/var(--lh-statement) var(--font-display);
+--type-heading:var(--fw-semibold) var(--fs-h2)/var(--lh-snug) var(--font-sans);
+--type-body:var(--fw-regular) var(--fs-body)/var(--lh-body) var(--font-sans);
+--type-ui:var(--fw-medium) var(--fs-body-s)/1.2 var(--font-sans);
+--type-label:var(--fw-medium) 12px/1.5 var(--font-mono);
+--type-mono:var(--fw-regular) 13px/1.6 var(--font-mono);
+}
