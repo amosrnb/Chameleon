@@ -13,9 +13,11 @@ import { CalendarView } from './views/CalendarView';
 import { CardsView } from './views/CardsView';
 import { FolderView } from './views/FolderView';
 import { InboxView } from './views/InboxView';
+import { LearnView } from './views/LearnView';
 import { NotFound } from './views/NotFound';
 import { NotesView } from './views/NotesView';
 import { NoteView } from './views/NoteView';
+import { SettingsView } from './views/SettingsView';
 import { StudySession } from './views/StudySession';
 import { TodosView } from './views/TodosView';
 
@@ -32,6 +34,8 @@ const router = createBrowserRouter([
       { path: 'cards/:deckId', element: <StudySession /> },
       { path: 'todos', element: <TodosView /> },
       { path: 'calendar', element: <CalendarView /> },
+      { path: 'learn/:tool', element: <LearnView /> },
+      { path: 'settings', element: <SettingsView /> },
       { path: '*', element: <NotFound /> },
     ],
   },

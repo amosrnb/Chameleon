@@ -7,4 +7,6 @@ export const to = {
   study: (deckId: string) => `/cards/${deckId}`,
   todos: () => '/todos',
   calendar: () => '/calendar',
+  learn: (tool: string) => `/learn/${tool}`,
+  settings: () => '/settings',
 };

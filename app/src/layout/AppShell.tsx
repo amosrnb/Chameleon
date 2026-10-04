@@ -8,7 +8,7 @@ import { useApp } from '../store/app';
 import { LibraryDialog } from './LibraryDialog';
 import { Sidebar } from './Sidebar';
 
-const SECTION_LABEL: Record<string, string> = { inbox: 'Inbox', notes: 'Notes', cards: 'Flashcards', todos: 'Todos', calendar: 'Calendar' };
+const SECTION_LABEL: Record<string, string> = { inbox: 'Inbox', notes: 'Notes', cards: 'Flashcards', todos: 'Todos', calendar: 'Calendar', learn: 'Learn', settings: 'Settings' };
 
 export function AppShell() {
   const navigate = useNavigate();

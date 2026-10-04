@@ -7,6 +7,8 @@ import type { ToastAction } from '../ds';
 import { docLib, folder, libOf, proposal, subjectOf } from '../lib/model';
 
 export interface Settings {
+  profileName: string;
+  /** 'split' shows tools and file manager together; 'switch' toggles between them. */
   navLayout: 'split' | 'switch';
   folderLayout: 'list' | 'grid';
   inboxLayout: 'list' | 'focus';
@@ -32,7 +34,9 @@ export interface LibraryDialog {
 interface Ui {
   /** Expanded folders in the sidebar tree. */
   open: Record<string, boolean>;
-  navTab: 'work' | 'files';
+  /** Collapsed sidebar sections (Learn, File manager). */
+  navCollapsed: Record<string, boolean>;
+  navTab: 'tools' | 'files';
   /** Documents moved to "later" in this session. */
   snoozed: string[];
   todoTab: 'open' | 'done';
@@ -78,7 +82,7 @@ const seedContent = (): Content => ({
   lib: LIB,
 });
 
-const defaultSettings: Settings = { navLayout: 'split', folderLayout: 'list', inboxLayout: 'list', dark: false, tint: 'sky' };
+const defaultSettings: Settings = { profileName: 'Your name', navLayout: 'split', folderLayout: 'list', inboxLayout: 'list', dark: false, tint: 'sky' };
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -88,7 +92,8 @@ export const useApp = create<AppState>()(
       ...defaultSettings,
       ...seedContent(),
       open: { y2627: true, maths: true },
-      navTab: 'work',
+      navCollapsed: {},
+      navTab: 'tools',
       snoozed: [],
       todoTab: 'open',
       todoSub: 'all',
@@ -198,8 +203,8 @@ export const useApp = create<AppState>()(
       version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
-        navLayout: s.navLayout, folderLayout: s.folderLayout, inboxLayout: s.inboxLayout, dark: s.dark, tint: s.tint,
-        docs: s.docs, todos: s.todos, blocks: s.blocks, exams: s.exams, lib: s.lib, open: s.open,
+        profileName: s.profileName, navLayout: s.navLayout, folderLayout: s.folderLayout, inboxLayout: s.inboxLayout, dark: s.dark, tint: s.tint,
+        docs: s.docs, todos: s.todos, blocks: s.blocks, exams: s.exams, lib: s.lib, open: s.open, navCollapsed: s.navCollapsed,
       }),
     },
   ),
