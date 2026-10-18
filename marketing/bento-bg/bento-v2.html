@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chameleon bento background v2</title>
+<link rel="stylesheet" href="../../app/vendor/lucide/lucide.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --line:rgba(255,255,255,.075); --line-2:rgba(255,255,255,.13);
+  --ink-1:#f2f2f3; --ink-2:#a3a4a8; --ink-3:#66676c; --ink-4:#3f4044;
+  --ice:#8fb4ff; --cu:#e2a477;
+  --iri:linear-gradient(90deg,#6f9bff 0%,#cfe0ff 30%,#ffffff 50%,#f3cfae 70%,#d9925f 100%);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:800px;background:#000;overflow:hidden}
+body{font-family:"Geist",ui-sans-serif,system-ui,sans-serif;color:var(--ink-1);-webkit-font-smoothing:antialiased;position:relative}
+.mono{font-family:"Geist Mono",ui-monospace,monospace}
+
+.grid{position:absolute;left:-70px;top:-14px;width:2060px;height:860px;display:grid;gap:16px;
+  grid-template-columns:repeat(8,1fr);grid-template-rows:1fr 1.35fr 1fr}
+.t{background:linear-gradient(180deg,#0e0e0f,#070708);border:1px solid var(--line);border-radius:26px;position:relative;overflow:hidden;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+/* faint chromatic sheen along top edge of each tile */
+.t:after{content:"";position:absolute;left:12%;right:12%;top:0;height:1px;background:var(--iri);opacity:.18}
+
+.cal{grid-column:1/3;grid-row:1/3}
+.heat{grid-column:1/3;grid-row:3}
+.chart{grid-column:3/5;grid-row:1}
+.cmd{grid-column:5/7;grid-row:1}
+.hero{grid-column:3/7;grid-row:2}
+.doc{grid-column:3/5;grid-row:3}
+.orb{grid-column:5;grid-row:3}
+.todo{grid-column:6;grid-row:3}
+.cards{grid-column:7/9;grid-row:1}
+.rings{grid-column:7;grid-row:2}
+.collab{grid-column:8;grid-row:2}
+.bars{grid-column:7/9;grid-row:3}
+
+.iri-text{background:var(--iri);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* calendar */
+.cal{padding-top:26px}
+.cal-head{display:grid;grid-template-columns:54px repeat(5,1fr);padding:0 22px 14px 0;border-bottom:1px solid var(--line)}
+.cal-head div{font-size:12px;color:var(--ink-3);text-align:center;letter-spacing:.04em}
+.cal-head b{display:block;font-size:22px;font-weight:400;color:var(--ink-2);margin-top:4px}
+.cal-head .today b{width:38px;height:38px;line-height:38px;border-radius:50%;background:#f2f2f3;color:#000;margin:4px auto 0;font-weight:500}
+.cal-body{position:relative;height:520px;margin-right:22px}
+.hr{position:absolute;left:54px;right:0;border-top:1px solid rgba(255,255,255,.05)}
+.hl{position:absolute;left:12px;font-size:11px;color:var(--ink-4);transform:translateY(-7px)}
+.ev{position:absolute;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:500;line-height:1.3;overflow:hidden;
+  background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:var(--ink-2)}
+.ev small{display:block;font-weight:400;color:var(--ink-3);margin-top:2px;font-size:11px}
+.ev.hi{background:rgba(255,255,255,.92);color:#0a0a0b;border-color:transparent}
+.ev.hi small{color:#55565a}
+.ev.ice{background:linear-gradient(180deg,rgba(143,180,255,.16),rgba(143,180,255,.05));border-color:rgba(143,180,255,.28);color:#cfdcff}
+.ev.cu{background:linear-gradient(180deg,rgba(226,164,119,.16),rgba(226,164,119,.05));border-color:rgba(226,164,119,.28);color:#f3d6bf}
+.now{position:absolute;height:1.5px;background:var(--iri);box-shadow:0 0 14px rgba(255,255,255,.6)}
+.now:before{content:"";position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:0 0 12px #fff}
+
+/* heatmap */
+.heat{padding:26px}
+.heat-grid{display:grid;grid-template-columns:repeat(24,1fr);grid-template-rows:repeat(7,1fr);grid-auto-flow:column;gap:5px;height:174px;margin-top:8px}
+.heat-grid i{border-radius:50%;background:rgba(255,255,255,.05);aspect-ratio:1;width:72%;justify-self:center;align-self:center}
+.lbl{font-size:11px;color:var(--ink-3);letter-spacing:.12em;text-transform:uppercase;font-family:"Geist Mono",monospace}
+
+/* chart */
+.chart{padding:24px 26px}
+.kpi{display:flex;align-items:baseline;gap:12px}
+.kpi b{font-size:40px;font-weight:400;letter-spacing:-.03em}
+.chip{font-size:12px;padding:5px 11px;border-radius:99px;border:1px solid var(--line-2);background:rgba(255,255,255,.04);color:var(--ink-1);display:inline-flex;gap:6px;align-items:center}
+.chart svg{position:absolute;left:0;bottom:0;width:100%;height:72%}
+
+/* command palette */
+.cmd{padding:22px}
+.search{display:flex;align-items:center;gap:12px;height:50px;padding:0 18px;border-radius:99px;background:rgba(255,255,255,.04);border:1px solid var(--line-2);font-size:15px;color:var(--ink-1)}
+.search .icon-search{color:var(--ink-3)}
+.caret{width:1.5px;height:20px;background:#fff;margin-left:-9px}
+.kbd{margin-left:auto;display:flex;gap:4px}
+.kbd span{font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:6px;padding:2px 6px}
+.res{margin-top:12px;display:flex;flex-direction:column;gap:3px}
+.row{display:flex;align-items:center;gap:12px;height:40px;padding:0 16px;border-radius:12px;font-size:14px;color:var(--ink-2)}
+.row.on{background:rgba(255,255,255,.07);color:var(--ink-1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.row i{font-size:16px;color:var(--ink-3);width:18px;text-align:center}
+.row .mono{margin-left:auto;font-size:11px;color:var(--ink-4)}
+
+/* hero: light streaks like the landing hero */
+.hero{background:#020203}
+#streaks{position:absolute;inset:0;-webkit-mask:radial-gradient(ellipse 55% 110% at 50% 50%,#000 35%,transparent 90%)}
+#streaks i{position:absolute;top:-10%;bottom:-10%;border-radius:2px}
+.hero .scrim{position:absolute;inset:0;background:radial-gradient(ellipse 34% 46% at 50% 50%,rgba(0,0,0,.5),rgba(0,0,0,.15) 70%,transparent 100%)}
+
+/* doc editor */
+.doc{padding:24px 28px}
+.doc h3{font-size:20px;font-weight:500;letter-spacing:-.01em;margin-bottom:12px}
+.ln{height:9px;border-radius:5px;background:rgba(255,255,255,.07);margin-bottom:11px}
+.slash{position:absolute;left:180px;top:84px;width:230px;padding:6px;border-radius:14px;background:rgba(22,22,24,.92);border:1px solid var(--line-2);box-shadow:0 24px 48px rgba(0,0,0,.7)}
+.slash div{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;font-size:13px;color:var(--ink-2)}
+.slash div.on{background:rgba(255,255,255,.08);color:var(--ink-1)}
+.slash i{font-size:15px;color:var(--ink-3)}
+.cursor{display:inline-block;width:1.5px;height:16px;background:#fff;vertical-align:-3px}
+
+/* orb (AI) */
+.orb{display:flex;justify-content:center;padding-top:34px;background:radial-gradient(circle at 50% 45%,#121214,#060607 70%)}
+.sphere{width:136px;height:136px;border-radius:50%;position:relative;overflow:hidden;background:#07070a;
+  box-shadow:0 0 70px rgba(143,180,255,.22),0 0 140px rgba(226,164,119,.12),inset 0 0 0 1px rgba(255,255,255,.12)}
+.sphere b{position:absolute;border-radius:50%;filter:blur(14px)}
+.sphere:after{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.55),transparent 22%),radial-gradient(circle at 50% 50%,transparent 55%,rgba(0,0,0,.6) 100%)}
+.orb .icon-sparkles{display:none}
+
+/* todo */
+.todo{padding:24px 22px}
+.td{display:flex;align-items:center;gap:12px;font-size:14px;margin-bottom:18px;color:var(--ink-1)}
+.cb{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ink-4);flex:none;display:grid;place-items:center;font-size:12px}
+.td.done{color:var(--ink-4);text-decoration:line-through}
+.td.done .cb{background:#f2f2f3;border-color:#f2f2f3;color:#000}
+
+/* flashcards */
+.fc{position:absolute;left:50%;width:300px;height:150px;border-radius:20px;border:1px solid var(--line-2);background:linear-gradient(180deg,#1a1a1c,#0f0f11)}
+.fc.c3{top:28px;transform:translateX(-50%) scale(.86);opacity:.4}
+.fc.c2{top:42px;transform:translateX(-50%) scale(.93);opacity:.7}
+.fc.c1{top:58px;transform:translateX(-50%);padding:22px 24px;box-shadow:0 24px 48px rgba(0,0,0,.6)}
+.fc.c1:before{content:"";position:absolute;inset:-1px;border-radius:20px;padding:1px;background:var(--iri);opacity:.55;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.fc .q{font-size:18px;font-weight:400;line-height:1.35}
+.fc .meta{font-size:11px;color:var(--ink-3);margin-bottom:10px;display:flex;gap:6px;align-items:center}
+.grade{position:absolute;left:50%;transform:translateX(-50%);top:224px;display:flex;gap:8px}
+.grade span{font-size:12px;padding:7px 15px;border-radius:99px;border:1px solid var(--line-2);color:var(--ink-2)}
+.grade .g{background:#f2f2f3;border-color:#f2f2f3;color:#000;font-weight:500}
+
+/* rings */
+.rings{display:grid;place-items:center}
+.rings svg{width:80%}
+
+/* collab */
+.collab{padding:24px}
+.stack{display:flex}
+.av{border-radius:50%;display:grid;place-items:center;font-weight:500;flex:none}
+.stack .av{width:40px;height:40px;font-size:13px;border:3px solid #0b0b0c;margin-left:-10px;background:#2a2a2d;color:var(--ink-1)}
+.stack .av:first-child{margin-left:0;background:#f2f2f3;color:#000}
+.ptr{position:absolute;display:flex;align-items:flex-start}
+.ptr i{font-size:22px}
+.ptr span{font-size:12px;font-weight:500;padding:3px 10px;border-radius:99px;margin-top:16px;margin-left:-4px}
+.typing{position:absolute;left:24px;right:24px;bottom:24px;height:10px;border-radius:5px;background:rgba(255,255,255,.06)}
+.typing.t2{bottom:44px;right:70px}
+.typing.t3{bottom:64px;right:40px}
+.sel{position:absolute;left:24px;bottom:44px;width:96px;height:10px;border-radius:4px;background:linear-gradient(90deg,rgba(143,180,255,.55),rgba(226,164,119,.45))}
+
+/* bars */
+.bars{padding:24px 28px}
+.bars svg{position:absolute;left:28px;bottom:22px;width:calc(100% - 56px);height:66%}
+
+.fade{position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 62% 75% at 50% 50%,transparent 55%,rgba(0,0,0,.5) 80%,#000 100%),
+    linear-gradient(90deg,#000 0,transparent 9%,transparent 91%,#000 100%),
+    linear-gradient(180deg,#000 0,transparent 7%,transparent 90%,#000 100%)}
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <div class="t cal">
+    <div class="cal-head"><div></div>
+      <div>MON<b>13</b></div><div>TUE<b>14</b></div><div class="today">WED<b>15</b></div><div>THU<b>16</b></div><div>FRI<b>17</b></div></div>
+    <div class="cal-body" id="calbody"></div>
+  </div>
+
+  <div class="t heat">
+    <div class="lbl">Review streak · <span class="iri-text">42 days</span></div>
+    <div class="heat-grid" id="heat"></div>
+  </div>
+
+  <div class="t chart">
+    <div class="kpi"><b>1,284</b><span class="chip"><i class="icon-trending-up"></i>38%</span></div>
+    <svg viewBox="0 0 480 170" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="iri" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#6f9bff" stop-opacity=".2"/><stop offset=".45" stop-color="#cfe0ff"/><stop offset=".75" stop-color="#ffffff"/><stop offset="1" stop-color="#e2a477"/>
+        </linearGradient>
+        <linearGradient id="af" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <g stroke="rgba(255,255,255,.045)"><line x1="0" y1="40" x2="480" y2="40"/><line x1="0" y1="85" x2="480" y2="85"/><line x1="0" y1="130" x2="480" y2="130"/></g>
+      <g stroke="rgba(255,255,255,.04)"><line x1="96" y1="0" x2="96" y2="170"/><line x1="192" y1="0" x2="192" y2="170"/><line x1="288" y1="0" x2="288" y2="170"/><line x1="384" y1="0" x2="384" y2="170"/></g>
+      <path d="M0 150 C40 140 60 120 100 126 S160 108 200 98 S260 112 300 82 S360 60 390 66 S440 30 480 18 L480 170 L0 170Z" fill="url(#af)"/>
+      <path d="M0 150 C40 140 60 120 100 126 S160 108 200 98 S260 112 300 82 S360 60 390 66 S440 30 480 18" fill="none" stroke="url(#iri)" stroke-width="2"/>
+      <path d="M0 160 C50 156 90 146 140 148 S220 136 270 130 S350 120 400 110 S450 96 480 92" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1.2" stroke-dasharray="3 5"/>
+    </svg>
+    <div style="position:absolute;right:42px;top:77px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 0 0 6px rgba(255,255,255,.08),0 0 30px 8px rgba(255,255,255,.35)"></div>
+  </div>
+
+  <div class="t cmd">
+    <div class="search"><i class="icon-search"></i><span>Plan my week</span><span class="caret"></span>
+      <div class="kbd"><span>⌘</span><span>K</span></div></div>
+    <div class="res">
+      <div class="row on"><i class="icon-sparkles" style="color:var(--ink-1)"></i><span class="iri-text" style="font-weight:500">Ask Chameleon AI</span><span class="mono">↵</span></div>
+      <div class="row"><i class="icon-calendar"></i>Open this week<span class="mono">Calendar</span></div>
+      <div class="row"><i class="icon-file-text"></i>Weekly planning notes<span class="mono">Notes</span></div>
+      <div class="row"><i class="icon-repeat"></i>Review 12 due cards<span class="mono">Learn</span></div>
+    </div>
+  </div>
+
+  <div class="t hero"><div id="streaks"></div><div class="scrim"></div></div>
+
+  <div class="t doc">
+    <div class="lbl" style="margin-bottom:10px">Notes / Product</div>
+    <h3>Launch plan</h3>
+    <div class="ln" style="width:92%"></div><div class="ln" style="width:78%"></div>
+    <div style="font-size:14px;color:var(--ink-2);margin:2px 0 12px">/<span class="cursor"></span></div>
+    <div class="ln" style="width:85%"></div><div class="ln" style="width:60%"></div>
+    <div class="slash">
+      <div class="on"><i class="icon-check"></i>To-do list</div>
+      <div><i class="icon-calendar"></i>Date</div>
+      <div><i class="icon-repeat"></i>Flashcard</div>
+      <div><i class="icon-sparkles"></i>Ask AI</div>
+    </div>
+  </div>
+
+  <div class="t orb"><div class="sphere"><b style="width:90px;height:90px;left:-8px;top:40px;background:#5f8dff"></b><b style="width:90px;height:90px;left:56px;top:56px;background:#d9925f"></b><b style="width:80px;height:70px;left:30px;top:-6px;background:#e9efff"></b></div><i class="icon-sparkles"></i></div>
+
+  <div class="t todo">
+    <div class="td done"><span class="cb"><i class="icon-check"></i></span>Book review</div>
+    <div class="td done"><span class="cb"><i class="icon-check"></i></span>Ship sidebar</div>
+    <div class="td"><span class="cb"></span>Release notes</div>
+    <div class="td"><span class="cb"></span>Reply to Lee</div>
+  </div>
+
+  <div class="t cards">
+    <div class="fc c3"></div><div class="fc c2"></div>
+    <div class="fc c1"><div class="meta"><i class="icon-repeat"></i>Due today · 12 left</div><div class="q">What is spaced repetition?</div></div>
+    <div class="grade"><span>Again</span><span>Hard</span><span class="g">Good</span><span>Easy</span></div>
+  </div>
+
+  <div class="t rings">
+    <svg viewBox="0 0 200 200">
+      <defs>
+        <linearGradient id="ri" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#6f9bff"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#e2a477"/>
+        </linearGradient>
+      </defs>
+      <g fill="none" stroke-linecap="round" stroke-width="13" transform="rotate(-90 100 100)">
+        <circle cx="100" cy="100" r="82" stroke="rgba(255,255,255,.06)"/>
+        <circle cx="100" cy="100" r="82" stroke="url(#ri)" stroke-dasharray="400 515"/>
+        <circle cx="100" cy="100" r="63" stroke="rgba(255,255,255,.06)"/>
+        <circle cx="100" cy="100" r="63" stroke="rgba(255,255,255,.75)" stroke-dasharray="270 396"/>
+        <circle cx="100" cy="100" r="44" stroke="rgba(255,255,255,.06)"/>
+        <circle cx="100" cy="100" r="44" stroke="rgba(255,255,255,.32)" stroke-dasharray="130 276"/>
+      </g>
+      <text x="100" y="108" text-anchor="middle" fill="#f2f2f3" font-family="Geist" font-size="24" font-weight="300">78%</text>
+    </svg>
+  </div>
+
+  <div class="t collab">
+    <div class="stack"><span class="av">M</span><span class="av">A</span><span class="av">L</span><span class="av">J</span></div>
+    <div class="typing t3"></div><div class="typing t2"></div><div class="sel"></div><div class="typing"></div>
+    <div class="ptr" style="left:96px;top:120px"><i class="icon-mouse-pointer-2" style="color:var(--ice)"></i><span style="background:var(--ice);color:#06122b">Ana</span></div>
+    <div class="ptr" style="left:40px;top:182px"><i class="icon-mouse-pointer-2" style="color:#f2f2f3"></i><span style="background:#f2f2f3;color:#000">Lee</span></div>
+  </div>
+
+  <div class="t bars">
+    <div class="kpi"><b style="font-size:30px">31.5h</b><span style="font-size:13px;color:var(--ink-3)">focus this week</span></div>
+    <svg viewBox="0 0 420 130" preserveAspectRatio="none" id="bars"></svg>
+  </div>
+</div>
+<div class="fade"></div>
+
+<script>
+let seed=11;const rnd=()=>{seed=(seed*9301+49297)%233280;return seed/233280};
+// calendar
+(function(){
+  const body=document.getElementById('calbody'),H=58,top=10;
+  for(let i=0;i<9;i++){
+    const l=document.createElement('div');l.className='hr';l.style.top=(top+i*H)+'px';body.appendChild(l);
+    const t=document.createElement('div');t.className='hl';t.style.top=(top+i*H)+'px';t.textContent=(9+i)+':00';body.appendChild(t);
+  }
+  const colW=(body.clientWidth-54)/5;
+  const evs=[[0,0,1.5,'','Standup','9:00'],[0,2.5,2,'ice','Design review','11:30'],[0,5,1,'','Focus',''],
+    [1,0.5,1,'','1:1 Ana',''],[1,2,1.5,'cu','Flashcards','11:00'],[1,4.5,2.5,'','Deep work','13:30'],
+    [2,0,1,'','Standup',''],[2,1.5,2,'hi','Sprint planning','10:30'],[2,4,1,'','Lunch',''],[2,5.5,1.5,'ice','Ship v1','14:30'],
+    [3,1,1.5,'cu','Release notes','10:00'],[3,3.5,1,'','Call',''],[3,5,2,'','Roadmap','14:00'],
+    [4,0,1,'','Standup',''],[4,2,1,'ice','Review',''],[4,4,2.5,'','Retro','13:00']];
+  evs.forEach(([d,s,len,c,t,time])=>{
+    const e=document.createElement('div');e.className='ev '+c;
+    e.style.left=(54+d*colW+4)+'px';e.style.width=(colW-8)+'px';e.style.top=(top+s*H+3)+'px';e.style.height=(len*H-6)+'px';
+    e.innerHTML=t+(time&&len>=1.5?'<small>'+time+'</small>':'');body.appendChild(e);
+  });
+  const n=document.createElement('div');n.className='now';n.style.left=(54+2*colW)+'px';n.style.width=colW+'px';n.style.top=(top+3.6*H)+'px';body.appendChild(n);
+})();
+// heatmap (dots, grayscale with rare chromatic dots)
+(function(){
+  const g=document.getElementById('heat');
+  for(let i=0;i<24*7;i++){
+    const c=document.createElement('i');const w=i/(24*7);const v=rnd()*(.35+w*.9);
+    if(v>.25){const a=Math.min(1,v);c.style.background=`rgba(255,255,255,${(.1+a*.7).toFixed(2)})`;
+      if(a>.9){c.style.background=rnd()>.5?'#8fb4ff':'#e2a477';c.style.boxShadow='0 0 10px currentColor';c.style.color=c.style.background;}}
+    g.appendChild(c);
+  }
+})();
+// bars
+(function(){
+  const svg=document.getElementById('bars');const v=[6.5,7,5.5,8,4.5,1.2,.4];const bw=36,gap=(420-7*bw)/6;
+  let h='<defs><linearGradient id="bw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity=".06"/></linearGradient>'+
+        '<linearGradient id="bi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#cfe0ff"/><stop offset="1" stop-color="#6f9bff" stop-opacity=".2"/></linearGradient></defs>';
+  v.forEach((x,i)=>{const bh=Math.max(6,x/8*124);const X=i*(bw+gap);
+    h+=`<rect x="${X}" y="0" width="${bw}" height="130" rx="18" fill="rgba(255,255,255,.03)"/>`;
+    h+=`<rect x="${X}" y="${130-bh}" width="${bw}" height="${bh}" rx="18" fill="${i===3?'url(#bi)':'url(#bw)'}"/>`;});
+  svg.innerHTML=h;
+})();
+// streaks (echoes the landing hero)
+(function(){
+  const s=document.getElementById('streaks');const cols=['255,255,255','143,180,255','226,164,119','190,200,220'];
+  for(let i=0;i<520;i++){
+    const l=document.createElement('i');const x=rnd()*100;const w=rnd()<.8?1:2+rnd()*2;
+    const c=cols[rnd()<.55?0:rnd()<.5?1:rnd()<.6?2:3];const a=(.12+rnd()*.7).toFixed(2);
+    const p1=(rnd()*40).toFixed(0),p2=(50+rnd()*50).toFixed(0);
+    l.style.left=x+'%';l.style.width=w+'px';
+    l.style.background=`linear-gradient(180deg,transparent ${p1}%,rgba(${c},${a}) ${(+p1+p2)/2}%,transparent ${p2}%)`;
+    if(w>1)l.style.filter='blur(2px)';else if(rnd()<.3)l.style.filter='blur(.6px)';
+    s.appendChild(l);
+  }
+})();
+</script>
+</body>
+</html>

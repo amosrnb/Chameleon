@@ -1,0 +1,334 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chameleon bento background</title>
+<link rel="stylesheet" href="../../app/vendor/lucide/lucide.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --tile:#0d0e10; --tile-2:#111215; --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.11);
+  --ink-1:#ededef; --ink-2:#a1a3a9; --ink-3:#6c6e75; --ink-4:#4a4c52;
+  --k3:#b4bdd4; --k4:#96a1bf; --k5:#7d89aa; --k6:#636e8e;
+  --red:#e5534b; --amber:#eda13a; --green:#4fb06a; --blue:#4b8ff0; --violet:#9478ee;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:800px;background:#000;overflow:hidden}
+body{font-family:"Geist",ui-sans-serif,system-ui,sans-serif;color:var(--ink-1);-webkit-font-smoothing:antialiased;position:relative}
+.mono{font-family:"Geist Mono",ui-monospace,monospace}
+
+/* grid bleeds past the canvas so outer tiles get cut by the fade */
+.grid{position:absolute;left:-70px;top:-14px;width:2060px;height:860px;display:grid;gap:18px;
+  grid-template-columns:repeat(8,1fr);grid-template-rows:1fr 1.35fr 1fr}
+.t{background:linear-gradient(180deg,var(--tile-2),var(--tile));border:1px solid var(--line);border-radius:26px;position:relative;overflow:hidden;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+
+/* placement */
+.cal{grid-column:1/3;grid-row:1/3}
+.heat{grid-column:1/3;grid-row:3}
+.chart{grid-column:3/5;grid-row:1}
+.cmd{grid-column:5/7;grid-row:1}
+.hero{grid-column:3/7;grid-row:2}
+.list{grid-column:3/5;grid-row:3}
+.sticky{grid-column:5;grid-row:3}
+.todo{grid-column:6;grid-row:3}
+.cards{grid-column:7/9;grid-row:1}
+.rings{grid-column:7;grid-row:2}
+.collab{grid-column:8;grid-row:2}
+.bars{grid-column:7/9;grid-row:3}
+
+/* ---------- calendar ---------- */
+.cal{padding:26px 0 0 0}
+.cal-head{display:grid;grid-template-columns:54px repeat(5,1fr);padding:0 22px 14px 0;border-bottom:1px solid var(--line)}
+.cal-head div{font-size:13px;color:var(--ink-3);text-align:center}
+.cal-head b{display:block;font-size:22px;font-weight:500;color:var(--ink-2);margin-top:4px}
+.cal-head .today b{width:38px;height:38px;line-height:38px;border-radius:50%;background:var(--k5);color:#0b0d12;margin:4px auto 0}
+.cal-body{position:relative;height:520px;margin-right:22px}
+.hr{position:absolute;left:54px;right:0;border-top:1px solid var(--line)}
+.hl{position:absolute;left:12px;font-size:11px;color:var(--ink-4);transform:translateY(-7px)}
+.ev{position:absolute;border-radius:9px;padding:8px 10px;font-size:12px;font-weight:500;line-height:1.3;overflow:hidden}
+.ev small{display:block;font-weight:400;opacity:.7;margin-top:2px;font-size:11px}
+.ev.v{background:rgba(148,120,238,.16);color:#c9bcf7;box-shadow:inset 3px 0 0 var(--violet)}
+.ev.b{background:rgba(75,143,240,.15);color:#a9c8f7;box-shadow:inset 3px 0 0 var(--blue)}
+.ev.g{background:rgba(79,176,106,.14);color:#a6dbb5;box-shadow:inset 3px 0 0 var(--green)}
+.ev.a{background:rgba(237,161,58,.14);color:#f3cf9c;box-shadow:inset 3px 0 0 var(--amber)}
+.ev.k{background:rgba(125,137,170,.18);color:var(--k3);box-shadow:inset 3px 0 0 var(--k5)}
+.now{position:absolute;height:2px;background:var(--red);box-shadow:0 0 12px var(--red)}
+.now:before{content:"";position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--red)}
+
+/* ---------- heatmap ---------- */
+.heat{padding:26px 26px}
+.heat-grid{display:grid;grid-template-columns:repeat(24,1fr);grid-template-rows:repeat(7,1fr);grid-auto-flow:column;gap:5px;height:174px;margin-top:6px}
+.heat-grid i{border-radius:4px;background:rgba(255,255,255,.045)}
+.streak{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-3)}
+.streak .icon-zap{color:var(--amber);font-size:16px}
+
+/* ---------- chart ---------- */
+.chart{padding:24px 26px}
+.kpi{display:flex;align-items:baseline;gap:12px}
+.kpi b{font-size:38px;font-weight:600;letter-spacing:-.03em}
+.pill{font-size:12px;font-weight:500;padding:4px 9px;border-radius:99px;background:rgba(79,176,106,.14);color:#7fd197;display:inline-flex;gap:4px;align-items:center}
+.chart svg{position:absolute;left:0;bottom:0;width:100%;height:72%}
+
+/* ---------- command palette ---------- */
+.cmd{padding:22px}
+.search{display:flex;align-items:center;gap:12px;height:48px;padding:0 16px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--line-2);font-size:15px;color:var(--ink-2)}
+.search .icon-search{color:var(--ink-3)}
+.caret{width:2px;height:20px;background:var(--k4);margin-left:-8px}
+.kbd{margin-left:auto;display:flex;gap:4px}
+.kbd span{font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:6px;padding:2px 6px}
+.res{margin-top:12px;display:flex;flex-direction:column;gap:3px}
+.row{display:flex;align-items:center;gap:12px;height:40px;padding:0 14px;border-radius:10px;font-size:14px;color:var(--ink-2)}
+.row.on{background:rgba(125,137,170,.14);color:var(--ink-1)}
+.row i{font-size:16px;color:var(--ink-3);width:18px;text-align:center}
+.row.on i{color:var(--k3)}
+.row .mono{margin-left:auto;font-size:11px;color:var(--ink-4)}
+.row.on .icon-corner-down-left{margin-left:auto;color:var(--ink-3)}
+
+/* ---------- hero ---------- */
+.hero{background:#07080a;border-color:rgba(255,255,255,.06)}
+.blob{position:absolute;border-radius:50%;filter:blur(70px)}
+.hero .dots{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.09) 1px,transparent 1.4px);background-size:22px 22px;
+  -webkit-mask:radial-gradient(ellipse 60% 70% at 50% 50%,#000 20%,transparent 75%)}
+.hero .ring{position:absolute;left:50%;top:50%;border-radius:50%;border:1px solid rgba(180,189,212,.09);transform:translate(-50%,-50%)}
+.hero .scrim{position:absolute;inset:0;background:radial-gradient(ellipse 46% 52% at 50% 52%,rgba(0,0,0,.55),transparent 80%)}
+
+/* ---------- issue list ---------- */
+.list{padding:20px 0}
+.irow{display:flex;align-items:center;gap:14px;height:46px;padding:0 24px;border-bottom:1px solid var(--line);font-size:14px;color:var(--ink-1)}
+.irow:last-child{border-bottom:0}
+.irow .id{font-size:12px;color:var(--ink-4);width:62px}
+.irow .st{font-size:16px}
+.tag{margin-left:auto;font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:99px;padding:3px 9px;display:flex;align-items:center;gap:6px}
+.tag:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+.av{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:600;color:#0b0d12;flex:none}
+
+/* ---------- stickies ---------- */
+.sticky{background:linear-gradient(180deg,#121316,#0d0e10)}
+.note{position:absolute;width:150px;height:140px;border-radius:12px;padding:16px;font-size:13px;line-height:1.4;font-weight:500;box-shadow:0 14px 30px rgba(0,0,0,.5)}
+.note.a{background:#3a2c14;color:#f6d6a4;left:26px;top:34px;transform:rotate(-7deg)}
+.note.v{background:#2a2245;color:#d4c8fa;left:96px;top:48px;transform:rotate(4deg)}
+.note.b{background:#172a45;color:#b9d3fa;left:40px;top:120px;transform:rotate(-2deg)}
+
+/* ---------- todo ---------- */
+.todo{padding:24px 22px}
+.td{display:flex;align-items:center;gap:12px;font-size:14px;margin-bottom:18px;color:var(--ink-1)}
+.cb{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--ink-4);flex:none;display:grid;place-items:center;font-size:13px}
+.td.done{color:var(--ink-4);text-decoration:line-through}
+.td.done .cb{background:var(--k5);border-color:var(--k5);color:#0b0d12}
+
+/* ---------- flashcards ---------- */
+.cards{padding:24px}
+.fc{position:absolute;left:50%;width:300px;height:150px;border-radius:18px;border:1px solid var(--line-2);background:linear-gradient(180deg,#1a1c21,#131418)}
+.fc.c3{top:30px;transform:translateX(-50%) scale(.86);opacity:.45}
+.fc.c2{top:44px;transform:translateX(-50%) scale(.93);opacity:.7}
+.fc.c1{top:60px;transform:translateX(-50%);padding:22px 24px;box-shadow:0 20px 40px rgba(0,0,0,.55)}
+.fc .q{font-size:17px;font-weight:500;line-height:1.35}
+.fc .meta{font-size:11px;color:var(--ink-3);margin-bottom:10px;display:flex;gap:6px;align-items:center}
+.grade{position:absolute;left:50%;transform:translateX(-50%);top:226px;display:flex;gap:8px}
+.grade span{font-size:12px;font-weight:500;padding:7px 14px;border-radius:10px;border:1px solid var(--line-2);color:var(--ink-2)}
+.grade .g{background:rgba(79,176,106,.15);border-color:rgba(79,176,106,.35);color:#8fd8a4}
+
+/* ---------- rings ---------- */
+.rings{display:grid;place-items:center}
+.rings svg{width:78%}
+
+/* ---------- collab ---------- */
+.collab{padding:24px}
+.stack{display:flex}
+.stack .av{width:40px;height:40px;font-size:14px;border:3px solid #101114;margin-left:-10px}
+.stack .av:first-child{margin-left:0}
+.ptr{position:absolute;display:flex;align-items:flex-start}
+.ptr i{font-size:22px}
+.ptr span{font-size:12px;font-weight:600;color:#0b0d12;padding:3px 9px;border-radius:7px;margin-top:16px;margin-left:-4px}
+.typing{position:absolute;left:24px;right:24px;bottom:24px;height:12px;border-radius:6px;background:rgba(255,255,255,.06)}
+.typing.t2{bottom:46px;right:70px}
+.typing.t3{bottom:68px;right:40px}
+.sel{position:absolute;left:24px;bottom:46px;width:90px;height:12px;border-radius:4px;background:rgba(79,176,106,.35)}
+
+/* ---------- bars ---------- */
+.bars{padding:24px 28px}
+.bars svg{position:absolute;left:28px;right:28px;bottom:22px;width:calc(100% - 56px);height:70%}
+
+/* global edge fade to pure black */
+.fade{position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 62% 75% at 50% 50%,transparent 55%,rgba(0,0,0,.45) 80%,#000 100%),
+    linear-gradient(90deg,#000 0,transparent 9%,transparent 91%,#000 100%),
+    linear-gradient(180deg,#000 0,transparent 7%,transparent 90%,#000 100%)}
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <!-- Calendar -->
+  <div class="t cal">
+    <div class="cal-head">
+      <div></div>
+      <div>Mon<b>13</b></div><div>Tue<b>14</b></div><div class="today">Wed<b>15</b></div><div>Thu<b>16</b></div><div>Fri<b>17</b></div>
+    </div>
+    <div class="cal-body" id="calbody"></div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="t heat">
+    <div class="streak"><i class="icon-zap"></i><span style="color:var(--ink-1);font-weight:500">42 day streak</span></div>
+    <div class="heat-grid" id="heat"></div>
+  </div>
+
+  <!-- Area chart -->
+  <div class="t chart">
+    <div class="kpi"><b>1,284</b><span class="pill"><i class="icon-trending-up"></i>38%</span></div>
+    <svg viewBox="0 0 480 170" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="af" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#7d89aa" stop-opacity=".45"/>
+          <stop offset="1" stop-color="#7d89aa" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="al" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#636e8e"/><stop offset=".7" stop-color="#b4bdd4"/><stop offset="1" stop-color="#ffffff"/>
+        </linearGradient>
+      </defs>
+      <g stroke="rgba(255,255,255,.05)"><line x1="0" y1="40" x2="480" y2="40"/><line x1="0" y1="85" x2="480" y2="85"/><line x1="0" y1="130" x2="480" y2="130"/></g>
+      <path d="M0 150 C40 140 60 120 100 126 S160 108 200 98 S260 112 300 82 S360 60 390 66 S440 30 480 18 L480 170 L0 170Z" fill="url(#af)"/>
+      <path d="M0 150 C40 140 60 120 100 126 S160 108 200 98 S260 112 300 82 S360 60 390 66 S440 30 480 18" fill="none" stroke="url(#al)" stroke-width="2.5"/>
+      <path d="M0 160 C50 156 90 146 140 148 S220 136 270 130 S350 120 400 110 S450 96 480 92" fill="none" stroke="rgba(148,120,238,.45)" stroke-width="1.5" stroke-dasharray="4 5"/>
+    </svg>
+    <div style="position:absolute;right:42px;top:77px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 0 6px rgba(180,189,212,.18),0 0 26px 6px rgba(180,189,212,.5)"></div>
+  </div>
+
+  <!-- Command palette -->
+  <div class="t cmd">
+    <div class="search"><i class="icon-search"></i><span>Sprint</span><span class="caret"></span>
+      <div class="kbd"><span>⌘</span><span>K</span></div></div>
+    <div class="res">
+      <div class="row on"><i class="icon-sparkles"></i>Summarise sprint with AI<i class="icon-corner-down-left"></i></div>
+      <div class="row"><i class="icon-layers"></i>Sprint 43 board<span class="mono">CHA</span></div>
+      <div class="row"><i class="icon-file-text"></i>Sprint retro notes<span class="mono">Wiki</span></div>
+      <div class="row"><i class="icon-calendar"></i>Sprint planning · Thu 10:00<span class="mono">Cal</span></div>
+    </div>
+  </div>
+
+  <!-- Hero (text sits on top of this on the website) -->
+  <div class="t hero">
+    <div class="blob" style="width:520px;height:300px;left:22%;top:18%;background:rgba(125,137,170,.40)"></div>
+    <div class="blob" style="width:380px;height:260px;left:52%;top:30%;background:rgba(148,120,238,.26)"></div>
+    <div class="blob" style="width:300px;height:200px;left:10%;top:52%;background:rgba(75,143,240,.18)"></div>
+    <div class="blob" style="width:260px;height:180px;left:66%;top:6%;background:rgba(79,176,106,.12)"></div>
+    <div class="dots"></div>
+    <div class="ring" style="width:300px;height:300px"></div>
+    <div class="ring" style="width:520px;height:520px"></div>
+    <div class="ring" style="width:760px;height:760px"></div>
+    <div class="scrim"></div>
+  </div>
+
+  <!-- Issue list -->
+  <div class="t list">
+    <div class="irow"><i class="icon-circle-dot st" style="color:var(--amber)"></i><span class="id mono">CHA-128</span>Keyboard navigation<span class="tag" style="--c:var(--blue)">Access</span><span class="av" style="background:var(--k4)">M</span></div>
+    <div class="irow"><i class="icon-circle-dot st" style="color:var(--amber)"></i><span class="id mono">CHA-121</span>Inline status picker<span class="tag" style="--c:var(--green)">Editor</span><span class="av" style="background:var(--green)">A</span></div>
+    <div class="irow"><i class="icon-circle st" style="color:var(--ink-3)"></i><span class="id mono">CHA-112</span>Bulk edit labels<span class="tag" style="--c:var(--violet)">Design</span><span class="av" style="background:var(--amber)">L</span></div>
+    <div class="irow"><i class="icon-circle-check st" style="color:var(--green)"></i><span class="id mono">CHA-74</span>Collapsible sidebar<span class="tag" style="--c:var(--green)">Editor</span><span class="av" style="background:var(--violet)">J</span></div>
+  </div>
+
+  <!-- Stickies -->
+  <div class="t sticky">
+    <div class="note a">Release notes due Friday</div>
+    <div class="note v">Weekly digest in AI panel</div>
+    <div class="note b">Review Horizons with Lee</div>
+  </div>
+
+  <!-- Todos -->
+  <div class="t todo">
+    <div class="td done"><span class="cb"><i class="icon-check"></i></span>Book review room</div>
+    <div class="td done"><span class="cb"><i class="icon-check"></i></span>Ship sidebar</div>
+    <div class="td"><span class="cb"></span>Release notes</div>
+    <div class="td"><span class="cb"></span>Reply to Lee</div>
+  </div>
+
+  <!-- Flashcards -->
+  <div class="t cards">
+    <div class="fc c3"></div><div class="fc c2"></div>
+    <div class="fc c1"><div class="meta"><i class="icon-repeat"></i>Due today · 12 left</div><div class="q">How long does a cycle run?</div></div>
+    <div class="grade"><span>Again</span><span>Hard</span><span class="g">Good</span><span>Easy</span></div>
+  </div>
+
+  <!-- Rings -->
+  <div class="t rings">
+    <svg viewBox="0 0 200 200">
+      <g fill="none" stroke-linecap="round" stroke-width="16" transform="rotate(-90 100 100)">
+        <circle cx="100" cy="100" r="82" stroke="rgba(150,161,191,.14)"/>
+        <circle cx="100" cy="100" r="82" stroke="#96a1bf" stroke-dasharray="412 515"/>
+        <circle cx="100" cy="100" r="62" stroke="rgba(79,176,106,.14)"/>
+        <circle cx="100" cy="100" r="62" stroke="#4fb06a" stroke-dasharray="281 390"/>
+        <circle cx="100" cy="100" r="42" stroke="rgba(148,120,238,.16)"/>
+        <circle cx="100" cy="100" r="42" stroke="#9478ee" stroke-dasharray="120 264"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Collaboration -->
+  <div class="t collab">
+    <div class="stack">
+      <span class="av" style="background:var(--k4)">M</span><span class="av" style="background:var(--green)">A</span><span class="av" style="background:var(--amber)">L</span><span class="av" style="background:var(--violet)">J</span>
+    </div>
+    <div class="typing t3"></div><div class="typing t2"></div><div class="sel"></div><div class="typing"></div>
+    <div class="ptr" style="left:96px;top:120px"><i class="icon-mouse-pointer-2" style="color:var(--green)"></i><span style="background:var(--green)">Ana</span></div>
+    <div class="ptr" style="left:40px;top:180px"><i class="icon-mouse-pointer-2" style="color:var(--amber)"></i><span style="background:var(--amber)">Lee</span></div>
+  </div>
+
+  <!-- Bars -->
+  <div class="t bars">
+    <div class="kpi"><b style="font-size:30px">31.5h</b><span style="font-size:13px;color:var(--ink-3)">this week</span></div>
+    <svg viewBox="0 0 420 130" preserveAspectRatio="none" id="bars"></svg>
+  </div>
+</div>
+<div class="fade"></div>
+
+<script>
+// calendar
+(function(){
+  const body=document.getElementById('calbody'), H=58, top=10;
+  const hours=['9','10','11','12','13','14','15','16','17'];
+  hours.forEach((h,i)=>{
+    const l=document.createElement('div');l.className='hr';l.style.top=(top+i*H)+'px';body.appendChild(l);
+    const t=document.createElement('div');t.className='hl';t.style.top=(top+i*H)+'px';t.textContent=h+':00';body.appendChild(t);
+  });
+  const colW=(body.clientWidth-54)/5;
+  const evs=[
+    [0,0,1.5,'k','Standup','9:00'],[0,2.5,2,'v','Design review','11:30'],[0,5,1,'a','Focus','14:00'],
+    [1,0.5,1,'b','Ana / Max 1:1','9:30'],[1,2,1.5,'g','Spaced review','11:00'],[1,4.5,2.5,'k','Deep work','13:30'],
+    [2,0,1,'k','Standup','9:00'],[2,1.5,2,'v','Sprint planning','10:30'],[2,4,1,'b','Lunch w/ Lee','13:00'],[2,5.5,1.5,'g','Ship CHA-128','14:30'],
+    [3,1,1.5,'a','Release notes','10:00'],[3,3.5,1,'b','Customer call','12:30'],[3,5,2,'v','Roadmap','14:00'],
+    [4,0,1,'k','Standup','9:00'],[4,2,1,'g','Flashcards','11:00'],[4,4,2.5,'a','Retro','13:00'],
+  ];
+  evs.forEach(([d,s,len,c,t,time])=>{
+    const e=document.createElement('div');e.className='ev '+c;
+    e.style.left=(54+d*colW+4)+'px';e.style.width=(colW-8)+'px';
+    e.style.top=(top+s*H+3)+'px';e.style.height=(len*H-6)+'px';
+    e.innerHTML=t+(len>=1.5?'<small>'+time+'</small>':'');body.appendChild(e);
+  });
+  const n=document.createElement('div');n.className='now';n.style.left=(54+2*colW)+'px';n.style.width=colW+'px';n.style.top=(top+3.6*H)+'px';body.appendChild(n);
+})();
+// heatmap
+(function(){
+  const g=document.getElementById('heat');let s=7;
+  const r=()=>{s=(s*9301+49297)%233280;return s/233280};
+  for(let i=0;i<24*7;i++){
+    const c=document.createElement('i');const w=i/(24*7);const v=r()*(.35+w*.9);
+    if(v>.25){const a=Math.min(1,v);c.style.background=`rgba(150,161,191,${(.12+a*.75).toFixed(2)})`;
+      if(a>.85)c.style.boxShadow='0 0 10px rgba(180,189,212,.45)';}
+    g.appendChild(c);
+  }
+})();
+// bars
+(function(){
+  const svg=document.getElementById('bars');const v=[6.5,7,5.5,8,4.5,1,0];const bw=34,gap=(420-7*bw)/6;
+  let h='<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b4bdd4"/><stop offset="1" stop-color="#636e8e" stop-opacity=".5"/></linearGradient></defs>';
+  v.forEach((x,i)=>{const bh=Math.max(4,x/8*120);const X=i*(bw+gap);
+    h+=`<rect x="${X}" y="0" width="${bw}" height="130" rx="8" fill="rgba(255,255,255,.035)"/>`;
+    h+=`<rect x="${X}" y="${130-bh}" width="${bw}" height="${bh}" rx="8" fill="${i===3?'#e3e7f0':'url(#bg)'}"/>`;});
+  svg.innerHTML=h;
+})();
+</script>
+</body>
+</html>
