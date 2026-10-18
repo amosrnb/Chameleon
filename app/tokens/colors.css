@@ -1,0 +1,21 @@
+:root{
+--gray-0:#08090a;--gray-1:#101113;--gray-2:#16171a;--gray-3:#1c1d21;--gray-4:#24252a;--gray-5:#2e3035;--gray-6:#3a3c42;
+--white-a4:rgba(255,255,255,.04);--white-a7:rgba(255,255,255,.07);--white-a10:rgba(255,255,255,.10);--white-a16:rgba(255,255,255,.16);
+--ink-1:#ededef;--ink-2:#a1a3a9;--ink-3:#6c6e75;--ink-4:#4a4c52;
+--kestrel-300:#b4bdd4;--kestrel-400:#96a1bf;--kestrel-500:#7d89aa;--kestrel-600:#636e8e;--kestrel-900:#1a1d26;--kestrel-ink:#0b0d12;
+--red-500:#e5534b;--red-900:#2e1312;--amber-500:#eda13a;--amber-900:#2e2010;--green-500:#4fb06a;--green-900:#122416;--blue-500:#4b8ff0;--blue-900:#111f33;--violet-500:#9478ee;--violet-900:#1f1833;
+--bg-app:var(--gray-0);--bg-panel:var(--gray-1);--bg-raised:var(--gray-2);--bg-hover:var(--gray-3);--bg-selected:var(--gray-4);--bg-control:var(--gray-3);--bg-control-hover:var(--gray-4);--bg-overlay:rgba(0,0,0,.6);
+--border-subtle:var(--white-a7);--border-default:var(--white-a10);--border-strong:var(--white-a16);
+--text-primary:var(--ink-1);--text-secondary:var(--ink-2);--text-tertiary:var(--ink-3);--text-disabled:var(--ink-4);
+--accent:var(--kestrel-500);--accent-hover:var(--kestrel-400);--accent-soft:var(--kestrel-900);--accent-text:var(--kestrel-300);--on-accent:var(--kestrel-ink);
+--danger:var(--red-500);--danger-soft:var(--red-900);--warning:var(--amber-500);--warning-soft:var(--amber-900);--success:var(--green-500);--success-soft:var(--green-900);--info:var(--blue-500);--info-soft:var(--blue-900);
+--focus-ring:0 0 0 2px var(--gray-0),0 0 0 4px var(--kestrel-500);
+}
+[data-theme="light"]{
+--bg-app:#f3f3f1;--bg-panel:#ffffff;--bg-raised:#ffffff;--bg-hover:#f0f0ee;--bg-selected:#e8e8e5;--bg-control:#f4f4f2;--bg-control-hover:#ebebe8;--bg-overlay:rgba(20,20,18,.35);
+--border-subtle:rgba(0,0,0,.07);--border-default:rgba(0,0,0,.11);--border-strong:rgba(0,0,0,.18);
+--text-primary:#18191b;--text-secondary:#5c5e63;--text-tertiary:#8a8c91;--text-disabled:#b6b7ba;
+--accent:#5a6585;--accent-hover:#4c5674;--accent-soft:#eceef4;--accent-text:#454f6b;--on-accent:#ffffff;
+--danger-soft:#fbe9e8;--warning-soft:#fcf1e1;--success-soft:#e6f4ea;--info-soft:#e6effc;
+--focus-ring:0 0 0 2px #fff,0 0 0 4px #5a6585;
+}
