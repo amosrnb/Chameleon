@@ -11,6 +11,10 @@
   // all data is kept in the browser so edits survive a reload; a newer data.js version replaces older saves
   const saved = store.get("data", null);
     const D = saved && saved.version === window.DATA.version ? saved : window.DATA;
+  D.timelines = D.timelines || []; // added after version 4; older saves start without timelines
+  // horizon pages added after version 4: older saves get the Now / Next / Later page, and every goal sits on a page and column that exists
+  if (!D.hzPages || !D.hzPages.length) D.hzPages = [{ id: "hz-main", name: "Horizons", cols: [{ id: "now", name: "Now", sub: "This quarter" }, { id: "next", name: "Next", sub: "Next quarter" }, { id: "later", name: "Later", sub: "6–12 months" }] }];
+  D.horizons.forEach(g => { const p = D.hzPages.find(x => x.id === g.page) || D.hzPages[0]; g.page = p.id; if (!p.cols.some(c => c.id === g.h)) g.h = p.cols[0].id; });
   let saveTimer = 0;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set("data", D), 150); };
 
@@ -34,10 +38,10 @@
     chatSeq: 3,
     study: { deck: null, i: 0, flipped: false, good: 0 }, // flashcard session
     practice: null, // current practice round
-    dump: { deck: "d1", text: "", result: null }, // brain dump session
-    summary: "page:design", // source shown on the tutor summary page
+    dump: { deck: null, text: "", result: null }, // brain dump session
+    summary: null, // source shown on the tutor summary page
     notesLabel: null, // label filter on the notes overview
-    timer: { running: false, start: 0, todo: "t-128" },
+    timer: { running: false, start: 0, todo: null },
     asst: { open: false, chatId: null, draft: "", model: "Claude Sonnet 5.5", mode: "build" },
   };
 
@@ -65,7 +69,9 @@
   // fam "plan" = things you schedule, fam "content" = things you make; the two are always shown apart
   const TYPES = {
     todo: { fam: "plan", label: "ToDo", plural: "ToDos", icon: x => x.done ? "circle-check" : "circle", list: () => D.todos, name: x => x.text, route: () => "pin/todos" },
-    goal: { fam: "plan", label: "Goal", plural: "Goals", icon: () => "telescope", list: () => D.horizons, name: x => x.title, route: () => "plan/horizons" },
+    event: { fam: "plan", label: "Event", plural: "Events", icon: x => x.type === "focus" ? "headphones" : "calendar", list: () => D.events, name: x => x.title || "(No title)", route: () => "pin/calendar" },
+    timeline: { fam: "plan", label: "Timeline", plural: "Timelines", icon: () => "chart-gantt", list: () => D.timelines, name: x => x.name, route: () => "plan/timelines" },
+    goal: { fam: "plan", label: "Goal", plural: "Goals", icon: () => "telescope", list: () => D.horizons, name: x => x.title, route: x => "plan/horizons/" + hzPage(x.page).id },
     note: { fam: "content", label: "Note", plural: "Notes", icon: () => "file-text", list: () => D.notes, name: x => x.title || "Untitled", route: x => "work/notes/" + x.id },
     canvas: { fam: "content", label: "Canvas", plural: "Canvases", icon: () => "layout-dashboard", list: () => D.canvases, name: x => x.name, route: x => "work/canvas/" + x.id },
     sticky: { fam: "content", label: "Sticky", plural: "Stickies", icon: () => "sticky-note", list: () => D.stickies, name: x => (x.text.split("\n")[0] || "Empty sticky").slice(0, 32), route: x => "work/stickies/" + x.id },
@@ -76,7 +82,7 @@
   };
   const TYPE_KEYS = Object.keys(TYPES);
   // which element types each product's sidebar shows inside the folder tree
-  const PROD_TYPES = { plan: ["todo", "goal"], work: ["note", "canvas", "sticky"], wiki: ["deck", "page"], files: TYPE_KEYS, ai: ["chat"] };
+  const PROD_TYPES = { plan: ["todo", "event", "timeline", "goal"], work: ["note", "canvas", "sticky"], wiki: ["deck", "page"], files: TYPE_KEYS, ai: ["chat"] };
   const find = (t, id) => TYPES[t] && TYPES[t].list().find(x => x.id === id);
   const todo = id => find("todo", id);
   const allItems = () => TYPE_KEYS.flatMap(t => TYPES[t].list().map(x => ({ t, x })));
@@ -103,6 +109,12 @@
   // Linear-style section: muted label followed by a small solid caret
   const section = (key, label, body, action = "", route) => `<div class="sec${S.closedSecs.has(key) ? " closed" : ""}" data-fold="sec:${key}"><div class="sec-head${route ? " linked" + (S.route === route || S.route.startsWith(route + "/") ? " active" : "") : ""}" data-a="${route ? "opensec:" + key + "|" + route : "sec:" + key}"><span>${label}</span>${route ? `<span class="caret-hit" data-a="sec:${key}" title="Expand / collapse"><span class="caret"></span></span>` : `<span class="caret"></span>`}${action}</div><div class="fold-body"${S.closedSecs.has(key) ? " inert" : ""}><div class="sec-body sb-group">${body}</div></div></div>`;
   const unreadCount = () => D.inbox.filter(m => m.unread).length;
+  // horizon pages: unknown ids fall back to the first page, unknown columns to the page's first column
+  const hzPage = id => D.hzPages.find(p => p.id === id) || D.hzPages[0];
+  const hzCol = x => { const p = hzPage(x.page); return p.cols.find(c => c.id === x.h) || p.cols[0]; };
+  const curHzPage = () => hzPage(S.route.startsWith("plan/horizons/") ? S.route.split("/")[2] : null);
+  // focus an inline-editable field and select its text
+  const focusEdit = sel => setTimeout(() => { const el = document.querySelector(sel); if (!el) return; el.focus(); const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });
 
   /* ---------- top bar & rail ---------- */
   function topbar() {
@@ -177,10 +189,12 @@
   const fileItem = f => nav("files/file/" + f.id, f.icon, f.name, { sub: true });
   const liveFiles = () => D.files;
   const kbTree = k => ({ id: k.id, name: k.name, items: liveFiles().filter(f => k.files.includes(f.name)) });
-  // one row of an element inside the sidebar tree; ToDos and goals share a page, so they never show as active
+  // events, timelines and goals open in a dialog instead of a page of their own
+  const DIALOG_TYPES = ["event", "timeline", "goal"];
+  // one row of an element inside the sidebar tree; Plan elements share a page, so they never show as active
   function treeItem({ t, x }, depth) {
     const T = TYPES[t], route = T.route(x);
-    return nav(route, T.icon(x), T.name(x), { sub: true, pad: 30 + Math.min(depth, 4) * 14, drag: t + ":" + x.id, active: T.fam === "plan" ? false : null, color: t === "todo" && x.done ? "var(--success)" : "" });
+    return nav(route, T.icon(x), T.name(x), { sub: true, pad: 30 + Math.min(depth, 4) * 14, drag: t + ":" + x.id, active: T.fam === "plan" ? false : null, color: t === "todo" && x.done ? "var(--success)" : "", action: DIALOG_TYPES.includes(t) ? `open:${t}|${x.id}` : null });
   }
   // a folder in the global tree: the row opens the folder page, the caret only folds; shows the product's own types
   function folderNode(f, depth, types) {
@@ -212,7 +226,7 @@
     return sbHead("qc", "Create  C") +
       `<div class="sb-group">
         ${nav("plan/timelines", "chart-gantt", "Timelines")}
-        ${nav("plan/horizons", "telescope", "Horizons")}
+        ${expandRow("x-hz", "telescope", "Horizons", D.hzPages.map(p => nav("plan/horizons/" + p.id, "columns-3", p.name || "Untitled", { sub: true })).join(""), "hz-page-add", "New horizon page", "plan/horizons")}
         ${nav("plan/time", "timer", "Time tracking")}
         ${nav("plan/analytics", "chart-column", "Analytics")}
       </div>
@@ -260,7 +274,9 @@
   // short, type-specific detail shown next to an element in tables
   function itemDetail(t, x) {
     if (t === "todo") { if (x.done) return "Done"; if (!x.due) return "No date"; const dd = dayDiff(x.due); return `<span style="${dd < 0 ? "color:var(--danger)" : ""}">${x.due}</span>`; }
-    if (t === "goal") return { now: "Now", next: "Next", later: "Later" }[x.h] || "";
+    if (t === "goal") return esc((D.hzPages.length > 1 ? hzPage(x.page).name + " · " : "") + hzCol(x).name);
+    if (t === "event") return fmtShort(x.date) + (x.endDate ? " – " + fmtShort(x.endDate) : "");
+    if (t === "timeline") return fmtShort(x.start) + " – " + fmtShort(x.end);
     if (t === "deck") return x.cards.length + " cards";
     if (t === "canvas") return x.items.length + " items";
     if (t === "file") return x.size;
@@ -272,6 +288,8 @@
   function itemMeta(t, x) {
     if (t === "todo") { const p = prio(x.prio); return p.id ? `<span style="display:inline-flex;align-items:center;gap:5px">${ic(p.icon, 12, p.color)}${p.name}</span>` : ""; }
     if (t === "goal") return { on: "On track", risk: "At risk", idea: "Idea" }[x.conf] || "";
+    if (t === "event") return (x.allDay ? "All day" : fmtT(x.start) + " – " + fmtT(x.end)) + (x.rrule ? " · repeats" : "");
+    if (t === "timeline") { const n = isoDiff(x.start, x.end) + 1; return n >= 14 ? Math.round(n / 7) + " weeks" : n + (n === 1 ? " day" : " days"); }
     if (t === "note") return esc((x.labels || []).join(", "));
     if (t === "deck") { const n = x.cards.filter(c => !c.known).length; return n ? n + " to learn" : "Mastered"; }
     if (t === "file") return esc(x.owner || "");
@@ -287,6 +305,7 @@
       <span class="mono" style="color:var(--text-tertiary)">${itemDetail(t, x)}</span>
       <button class="ib sm" data-a="imenu:${t}|${x.id}" title="More">${ic("ellipsis", 14)}</button></div>`;
   }
+  const folderField = (fid, act) => { const f = folder(fid); return `<span class="chip${f ? "" : " is-empty"}" data-a="${act}" title="Folder">${f ? folderIcon(f, 13) : ic("folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`; };
   const folderChip = (t, x) => { const f = folder(x.folder); return `<span class="chip${f ? "" : " is-empty"}" data-a="move:${t}|${x.id}" title="Move to folder">${f ? folderIcon(f, 13) : ic("folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`; };
   // rows grouped by type (in registry order), each group with a small label
   const itemGroups = (items, opts) => TYPE_KEYS.map(t => { const list = items.filter(i => i.t === t); return list.length ? `<div class="coll-sub label-mono">${TYPES[t].plural}<span>${list.length}</span></div>` + list.map(i => itemRow(i, opts)).join("") : ""; }).join("");
@@ -319,7 +338,7 @@
     const empty = (icon, hint) => `<div class="box ibx-empty fd-empty">${ic(icon, 16, "var(--text-tertiary)")}${hint}</div>`;
     const panel = tab === "folders" ? (sub.length ? `<div class="coll-table fd-area">${subRows}</div>` : empty("folder-plus", "No subfolders yet."))
       : tab === "content" ? (cont.length ? `<div class="coll-table fd-area">${itemGroups(cont)}</div>` : empty("notebook-pen", "No notes, canvases, stickies, decks or files in this folder yet."))
-      : (plan.length ? `<div class="coll-table fd-area">${itemGroups(plan)}</div>` : empty("calendar-check", "No ToDos or goals in this folder yet."));
+      : (plan.length ? `<div class="coll-table fd-area">${itemGroups(plan)}</div>` : empty("calendar-check", "No ToDos, events, timelines or goals in this folder yet."));
     const add = tab === "folders" ? `<button class="btn sm" data-a="newfolder:${id}">${ic("folder-plus", 13)}New folder</button>` : `<button class="btn sm" data-a="qcfam:${tab}|${id}">${ic("plus", 13)}Add</button>`;
     return header(crumb, { lead: folderIcon(f), actions: `<button class="ib" data-a="fsettings:${id}" title="Folder settings">${ic("settings-2")}</button><button class="ib" data-a="fmenu:${id}" title="More">${ic("ellipsis")}</button>` }) +
       `<div class="scroll"><div class="coll">
@@ -576,7 +595,8 @@
           <div class="coll-head"><span class="coll-icon">${ic("gallery-vertical-end", 24)}</span><h1>Flashcards</h1><span class="spacer"></span>
             <button class="btn" data-a="go:wiki/practice">${ic("dumbbell", 14)}Practice</button></div>
           <p class="coll-desc">Decks built from your Learn pages. Flip a card, then mark whether you knew it.</p>
-          <div class="coll-table"><div class="coll-row c5 head"><span>Deck</span><span>Cards</span><span>To learn</span><span>Last studied</span><span></span></div>${rows}</div>
+          ${D.decks.length ? `<div class="coll-table"><div class="coll-row c5 head"><span>Deck</span><span>Cards</span><span>To learn</span><span>Last studied</span><span></span></div>${rows}</div>`
+            : emptyState("gallery-vertical-end", "No decks yet", "Decks hold question and answer cards you study and practise.")}
         </div></div>`;
     }
     if (S.study.deck !== deck.id) S.study = { deck: deck.id, i: 0, flipped: false, good: 0 }; // opened from a folder or the sidebar
@@ -623,6 +643,7 @@
   function viewBrainDump() {
     const b = S.dump, deck = D.decks.find(k => k.id === b.deck) || D.decks[0];
     const crumb = `<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:wiki/practice">Practice</span> <span class="crumb-sep">›</span> Brain dump`;
+    if (!deck) return header(crumb, { lead: ic("brain", 16, "var(--text-secondary)") }) + emptyState("brain", "No decks yet", "A brain dump checks your recall against a deck. Create a deck first.", `<button class="btn" data-a="go:wiki/flashcards">Flashcards</button>`);
     const picker = D.decks.map(k => `<button class="${k.id === deck.id ? "on" : ""}" data-a="dump-deck:${k.id}">${esc(k.name)}</button>`).join("");
     let result = "";
     if (b.result) {
@@ -639,6 +660,7 @@
     </div></div>`;
   }
   function viewPractice() {
+    if (!D.decks.some(k => k.cards.length)) return header("Test", { lead: ic("clipboard-check", 16, "var(--text-secondary)") }) + emptyState("clipboard-check", "No cards to test", "Tests draw their questions from your decks. Add cards to a deck first.", `<button class="btn" data-a="go:wiki/flashcards">Flashcards</button>`);
     const p = S.practice || (S.practice = { qs: practiceQuestions(), i: 0, picked: null, score: 0 });
     const head = header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:wiki/practice">Practice</span> <span class="crumb-sep">›</span> Test`, { lead: ic("clipboard-check", 16, "var(--text-secondary)"), mid: p.i < p.qs.length ? `<span class="mono" style="color:var(--text-tertiary);margin-left:6px">Question ${p.i + 1} of ${p.qs.length} · ${p.score} correct</span>` : "",
       actions: `<button class="btn sm" data-a="practice-restart">${ic("rotate-ccw", 13)}New round</button>` });
@@ -705,12 +727,14 @@
   // summary: key points of one Learn page or deck (local, sentence-based)
   function summarySource(src) {
     const [kind, id] = (src || "").split(":");
-    if (kind === "deck") { const k = D.decks.find(x => x.id === id); if (k) return { title: k.name, kind: "Deck", icon: "gallery-vertical-end", points: k.cards.map(x => `${x.q.replace(/\?$/, "")}: ${x.a}`) }; }
+    if (kind === "deck") { const k = D.decks.find(x => x.id === id); if (k) return { id: k.id, title: k.name, kind: "Deck", icon: "gallery-vertical-end", points: k.cards.map(x => `${x.q.replace(/\?$/, "")}: ${x.a}`) }; }
     const p = D.pages.find(x => x.id === id) || D.pages[0];
+    if (!p) { const k = D.decks[0]; return k ? summarySource("deck:" + k.id) : null; }
     return { title: p.title, kind: "Page", icon: p.icon, points: p.body.join(" ").split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean) };
   }
   function viewSummary() {
     const src = S.summary, s = summarySource(src);
+    if (!s) return header("Summary", { lead: ic("scroll-text", 16, "var(--text-secondary)") }) + emptyState("scroll-text", "Nothing to summarise", "Summaries are built from your Learn pages and decks.");
     const opt = (key, icon, label) => `<button class="src-opt${key === src ? " on" : ""}" data-a="summary-src:${key}">${ic(icon, 14)}<span>${esc(label)}</span></button>`;
     const words = s.points.join(" ").split(/\s+/).length;
     return header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:wiki/tutor">AI Tutor</span> <span class="crumb-sep">›</span> Summary`, { lead: ic("scroll-text", 16, "var(--text-secondary)") }) +
@@ -724,7 +748,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px">
           <button class="btn primary" data-a="summary-note">${ic("save", 14)}Save as note</button>
           <button class="btn" data-a="tutor-ask:Explain ${esc(s.title)}">${ic("messages-square", 14)}Discuss with tutor</button>
-          ${s.kind === "Deck" ? `<button class="btn" data-a="study:${src.split(":")[1]}">${ic("gallery-vertical-end", 14)}Study deck</button>` : ""}
+          ${s.kind === "Deck" ? `<button class="btn" data-a="study:${s.id}">${ic("gallery-vertical-end", 14)}Study deck</button>` : ""}
         </div></div></div></div>`;
   }
   function viewTutor() {
@@ -742,6 +766,7 @@
     if (parts[1] === "tutor") return parts[2] === "chat" ? viewTutor() : parts[2] === "summary" ? viewSummary() : viewTutorHome();
     if (parts[1] === "progress") return viewProgress();
     const p = D.pages.find(x => x.id === parts[1]) || D.pages[0];
+    if (!p) return header("Learn") + emptyState("book-open", "No pages yet", "Learn pages hold what you study.");
     return header(`<span style="color:var(--text-secondary);font-weight:500">Learn</span> <span class="crumb-sep">›</span> ${esc(p.title)}`, { actions: `${folderChip("page", p)}<button class="ib" data-a="star:page|${p.id}" title="${p.starred ? "Unstar" : "Star"}">${ic("star", 16, p.starred ? "var(--warning)" : "")}</button><button class="ib" data-a="imenu:page|${p.id}" title="More">${ic("ellipsis")}</button>` }) +
       `<div class="scroll"><div class="doc"><div style="margin-bottom:10px">${ic(p.icon, 28, "var(--text-tertiary)")}</div>
         <h1 class="editable" contenteditable="true" data-edit="page-title:${p.id}" data-ph="Untitled">${esc(p.title)}</h1>
@@ -768,27 +793,44 @@
   function viewPlan(parts) {
     const page = { roadmap: "timelines" }[parts[1]] || parts[1] || "timelines";
     if (page === "timelines") {
-      // six-month timeline starting September: one row per project folder milestone
-      const t0 = new Date(2026, 8, 1), t1 = new Date(2027, 2, 1), pct = d => Math.max(0, Math.min(100, (d - t0) / (t1 - t0) * 100));
-      const months = [8, 9, 10, 11, 0, 1].map(m => `<span>${MONTHS[m]}</span>`).join("");
-      const rows = projects().flatMap(f => (f.project.milestones || []).map(m => {
-        const a = pct(parseRange(m.start)), b = pct(parseRange(m.end));
-        return `<div class="tl-row" data-a="openfolder:${f.id}" data-drop="${f.id}"><span class="tl-name">${f.emoji ? f.emoji + "&nbsp; " : ""}${esc(f.name)}</span><span class="tl-track"><span class="tl-bar" style="left:${a}%;width:${b - a}%"><span class="tl-fill" style="width:${projProgress(f)}%"></span><span class="tl-lbl">${esc(m.name)} · ${m.end}</span></span><span class="tl-today" style="left:${pct(TODAY)}%"></span></span></div>`;
-      })).join("");
-      return header("Timelines", { lead: ic("chart-gantt", 16, "var(--text-secondary)"), actions: `<button class="btn sm primary" data-a="newproject">${ic("plus", 13)}New project</button>` }) +
-        (rows ? `<div class="scroll"><div class="tl"><div class="tl-row tl-head"><span class="tl-name label-mono">Project</span><span class="tl-track tl-months">${months}</span></div>${rows}</div></div>`
-          : emptyState("chart-gantt", "No project folders yet", "Turn on “Project” in a folder's settings to see it on the timeline.", `<button class="btn primary" data-a="newproject">New project</button>`));
+      // grouped by folder (tree order): project milestones, then any number of the folder's own timelines;
+      // a folder needs neither "Project" nor a target date to hold timelines, project folders always get a group
+      const bars = f => (f && f.project && f.project.milestones || []).map(m => ({ ms: m, f, a: parseRange(m.start), b: parseRange(m.end) }))
+        .concat(D.timelines.filter(x => (x.folder || null) === (f ? f.id : null)).map(x => ({ x, a: fromIso(x.start), b: addD(fromIso(x.end), 1) })));
+      const order = [], walk = pid => kids(pid).forEach(f => { order.push(f); walk(f.id); }); walk(null);
+      const groups = order.concat(null).map(f => ({ f, rows: bars(f) })).filter(g => g.rows.length || (g.f && g.f.project));
+      // whole months around today and every bar, between 6 and 24 of them
+      const all = groups.flatMap(g => g.rows), lo = new Date(Math.min(TODAY, ...all.map(r => r.a))), hi = new Date(Math.max(TODAY, ...all.map(r => r.b - 1)));
+      const t0 = new Date(lo.getFullYear(), lo.getMonth(), 1), n = Math.min(24, Math.max(6, (hi.getFullYear() - t0.getFullYear()) * 12 + hi.getMonth() - t0.getMonth() + 1));
+      const t1 = new Date(t0.getFullYear(), t0.getMonth() + n, 1), pct = d => Math.max(0, Math.min(100, (d - t0) / (t1 - t0) * 100));
+      const months = Array.from({ length: n }, (_, i) => `<span>${MONTHS[(t0.getMonth() + i) % 12]}</span>`).join("");
+      const today = `<span class="tl-today" style="left:${pct(TODAY)}%"></span>`;
+      const row = r => { const a = pct(r.a), w = Math.max(pct(r.b) - a, .6), end = a > 75 ? " tl-end" : ""; // near the right edge the label sits left of the bar
+        return r.ms ? `<div class="tl-row" data-a="openfolder:${r.f.id}"><span class="tl-name">${ic("flag", 13, "var(--text-tertiary)")}<span>${esc(r.ms.name)}</span></span><span class="tl-track"><span class="tl-bar${end}" style="left:${a}%;width:${w}%"><span class="tl-fill" style="width:${projProgress(r.f)}%"></span><span class="tl-lbl">${esc(r.ms.name)} · ${r.ms.end}</span></span>${today}</span></div>`
+          : `<div class="tl-row" data-a="open:timeline|${r.x.id}" data-drag="timeline:${r.x.id}" draggable="true"><span class="tl-name">${ic("chart-gantt", 13, "var(--text-tertiary)")}<span>${esc(r.x.name)}</span></span><span class="tl-track"><span class="tl-bar${end}" style="left:${a}%;width:${w}%"><span class="tl-lbl">${esc(r.x.name)} · ${fmtShort(r.x.end)}</span></span>${today}</span></div>`; };
+      const group = ({ f, rows }) => `<div class="tl-row tl-group"${f ? ` data-a="openfolder:${f.id}" data-drop="${f.id}"` : ""}><span class="tl-name">${f ? folderIcon(f, 14) : ic("folder-x", 14, "var(--text-tertiary)")}<span>${f ? esc(fpath(f.id).map(p => p.name).join(" / ")) : "No folder"}</span>${f && f.project ? `<span class="tl-tag">${ic("folder-kanban", 11)}Project${f.project.target ? " · " + esc(f.project.target) : ""}</span>` : ""}</span>
+          <span class="tl-gact"><span class="mono">${rows.length || ""}</span><button class="btn sm ghost" data-a="newtimeline:${f ? f.id : ""}" title="Add a timeline to ${f ? esc(f.name) : "no folder"}">${ic("plus", 13)}Timeline</button></span></div>`
+        + (rows.length ? rows.map(row).join("") : `<div class="tl-row tl-none"><span class="tl-name">No timelines yet</span><span class="tl-track">${today}</span></div>`);
+      const acts = `<button class="btn sm" data-a="newtimeline">${ic("plus", 13)}New timeline</button><button class="btn sm primary" data-a="newproject">${ic("plus", 13)}New project</button>`;
+      return header("Timelines", { lead: ic("chart-gantt", 16, "var(--text-secondary)"), actions: acts }) +
+        (groups.length ? `<div class="scroll"><div class="tl"><div class="tl-row tl-head"><span class="tl-name label-mono">Folder</span><span class="tl-track tl-months" style="grid-template-columns:repeat(${n},1fr)">${months}</span></div>${groups.map(group).join("")}</div></div>`
+          : emptyState("chart-gantt", "No timelines yet", "Add timelines to any folder — as many as you like. Project folders show their milestones here too.", `<button class="btn" data-a="newtimeline">New timeline</button><button class="btn primary" data-a="newproject">New project</button>`));
     }
     if (page === "horizons") {
+      // one horizon page: its name, column names and subtitles are edited in place; columns scroll sideways once they no longer fit
+      const pg = hzPage(parts[2]), n = pg.cols.length;
       const conf = { on: ["circle-check", "var(--success)", "On track"], risk: ["circle-alert", "var(--warning)", "At risk"], idea: ["circle-dashed", "var(--text-tertiary)", "Idea"] };
       const col = h => {
-        const items = D.horizons.filter(x => x.h === h.id);
-        return `<div class="hz-col"><div class="hz-head"><span class="label-mono">${h.label}</span><span class="mono" style="color:var(--text-tertiary)">${items.length}</span></div><div class="hz-sub">${h.sub}</div>
-          ${items.map(x => { const c = conf[x.conf] || conf.idea; return `<div class="hz-card" data-a="imenu:goal|${x.id}" data-drag="goal:${x.id}" draggable="true"><div class="hz-t">${esc(x.title)}</div><div class="hz-meta">${folderChip("goal", x)}<span class="chip">${ic(c[0], 13, c[1])}${c[2]}</span></div></div>`; }).join("")}
-          <button class="hz-add" data-a="toast:Goals get their own editor in a later phase">${ic("plus", 14)}Add goal</button></div>`;
+        const items = D.horizons.filter(x => x.page === pg.id && x.h === h.id);
+        return `<div class="hz-col"><div class="hz-head"><span class="label-mono editable hz-name" contenteditable="true" data-edit="hz-col:${pg.id}:${h.id}" data-ph="Untitled" spellcheck="false">${esc(h.name)}</span><span class="mono" style="color:var(--text-tertiary)">${items.length}</span><button class="ib sm" data-a="hz-col-menu:${pg.id}|${h.id}" title="Column options">${ic("ellipsis", 14)}</button></div>
+          <div class="hz-sub editable" contenteditable="true" data-edit="hz-sub:${pg.id}:${h.id}" data-ph="Add a subtitle…">${esc(h.sub || "")}</div>
+          ${items.map(x => { const c = conf[x.conf] || conf.idea; return `<div class="hz-card" data-a="open:goal|${x.id}" data-drag="goal:${x.id}" draggable="true"><div class="hz-t">${esc(x.title)}</div>${x.desc ? `<div class="hz-d">${esc(x.desc)}</div>` : ""}<div class="hz-meta">${folderChip("goal", x)}<span class="chip">${ic(c[0], 13, c[1])}${c[2]}</span></div></div>`; }).join("")}
+          <button class="hz-add" data-a="newgoal:${pg.id}|${h.id}">${ic("plus", 14)}Add goal</button></div>`;
       };
-      return header("Horizons", { lead: ic("telescope", 16, "var(--text-secondary)") }) +
-        `<div class="scroll"><div class="hz">${[{ id: "now", label: "Now", sub: "This quarter" }, { id: "next", label: "Next", sub: "Next quarter" }, { id: "later", label: "Later", sub: "6–12 months" }].map(col).join("")}</div></div>`;
+      const acts = `<button class="btn sm" data-a="hz-col-add:${pg.id}">${ic("plus", 13)}Column</button><button class="btn sm primary" data-a="newgoal:${pg.id}|">${ic("plus", 13)}New goal</button><button class="ib" data-a="hz-page-menu:${pg.id}" title="Page options">${ic("ellipsis")}</button>`;
+      return header(`<span class="editable hz-title" contenteditable="true" data-edit="hz-page:${pg.id}" data-ph="Untitled">${esc(pg.name)}</span>`, { lead: ic("telescope", 16, "var(--text-secondary)"), actions: acts }) +
+        `<div class="scroll"><div class="hz" style="grid-template-columns:repeat(${n},minmax(248px,1fr)) 180px;min-width:${n * 260 + 212}px">${pg.cols.map(col).join("")}
+          <button class="hz-add hz-newcol" data-a="hz-col-add:${pg.id}">${ic("plus", 14)}Add column</button></div></div>`;
     }
     if (page === "time") {
       const t = S.timer, total = D.timeEntries.reduce((s, e) => s + e.hours.reduce((a, b) => a + b, 0), 0);
@@ -1404,6 +1446,7 @@
         ${field("bell", `${rems}<button class="btn sm ghost" data-a="ce-rem-add">${ic("plus", 13)}Add notification</button>`)}
         ${field("calendar", `<div class="ce-row"><button class="chip" data-a="ce-cal"><i class="cal-dot" style="--c:${calCol(c)}"></i>${esc(c.name || "Calendar")}${ic("chevron-down", 12)}</button>
           <div class="ce-colors"><button class="fd-color${!d.color ? " on" : ""}" data-a="ce-color:none" title="Calendar colour" style="background:${calCol(c)}"></button><span class="ce-csep"></span>${Object.keys(CAL_COLORS).map(k => `<button class="fd-color${d.color === k ? " on" : ""}" data-a="ce-color:${k}" title="${CAL_COLOR_NAMES[k]}" style="background:${CAL_COLORS[k]}"></button>`).join("")}</div></div>`)}
+        ${field("folder", folderField(d.folder, "ce-folder"))}
         ${field("briefcase", `<div class="ce-row">${seg("ce-busy", d.busy || "busy", [["busy", "Busy"], ["free", "Free"]])}<select class="input ce-sel" id="ce-vis">${[["default", "Default visibility"], ["public", "Public"], ["private", "Private"]].map(([k, l]) => `<option value="${k}"${(d.vis || "default") === k ? " selected" : ""}>${l}</option>`).join("")}</select></div>`)}
         ${field("align-left", `<textarea id="ce-desc" class="ce-desc" placeholder="Add description">${esc(d.desc || "")}</textarea>`)}
       </div>
@@ -1447,7 +1490,8 @@
     if (d.type === "task") { closeLayer(); openTodoDialog({ due: fmtDay(fromIso(d.date)) }); const t = layer.querySelector("#dtitle"); t.value = d.title || ""; return; }
     if (d.allDay) { delete d.start; delete d.end; if (d.endDate === d.date) delete d.endDate; }
     else { if (d.endDate === d.date) delete d.endDate; if (!d.endDate && d.end <= d.start) d.end = Math.min(1440, d.start + CP().duration); }
-    d.title = (d.title || "").trim(); ["loc", "desc"].forEach(k => { if (!(d[k] || "").trim()) delete d[k]; });
+    d.title = (d.title || "").trim(); ["loc", "desc", "folder"].forEach(k => { if (!(d[k] || "").trim()) delete d[k]; });
+    if (d.folder) revealFolder(d.folder);
     if (d.vis === "default") delete d.vis; if (d.type === "event") delete d.type; if (d.busy === "busy") delete d.busy;
     if (d.rrule && d.rrule.freq !== "weekly") delete d.rrule.days;
     const orig = D.events.find(e => e.id === d.id);
@@ -1851,6 +1895,7 @@
     "ce-cal": (v, el) => { syncEd(); openMenu(el, D.calendars.filter(c => !c.readonly).map(c => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${calCol(c)}"></i></span>`, label: c.name, check: S.cal.ed.d.cal === c.id, run: () => { S.cal.ed.d.cal = c.id; redrawEd(); } }))); },
     "ce-color": (v) => { syncEd(); if (v === "none") delete S.cal.ed.d.color; else S.cal.ed.d.color = v; redrawEd(); },
     "ce-busy": (v) => { syncEd(); S.cal.ed.d.busy = v; redrawEd(); },
+    "ce-folder": (v, el) => { syncEd(); folderPicker(el, S.cal.ed.d.folder || null, fid => { S.cal.ed.d.folder = fid; redrawEd(); }); },
   };
 
   /* ---------- render ---------- */
@@ -1881,11 +1926,12 @@
   }
   function go(route) {
     if (!route) return;
+    if (route === "plan/horizons") route += "/" + D.hzPages[0].id; // the Horizons row opens the first page
     const p = route.split("/")[0];
     if (p !== "pin" && p !== "folder") { S.curProd = p; S.lastRoute[p] = route; }
     if (p === "folder") { revealFolder(route.split("/")[1]); if (route !== S.route) S.ftab = "plan"; }
     // leaving Notes / Canvas collapses their sidebar branch (caret or a click on the row reopens it)
-    const branches = { "x-notes": "work/notes", "x-canvas": "work/canvas", "x-practice": "wiki/practice", "x-tutor": "wiki/tutor" };
+    const branches = { "x-notes": "work/notes", "x-canvas": "work/canvas", "x-practice": "wiki/practice", "x-tutor": "wiki/tutor", "x-hz": "plan/horizons" };
     let closed = false;
     for (const id in branches) if (S.openFolders.has(id) && !(route + "/").startsWith(branches[id] + "/")) { S.openFolders.delete(id); closed = true; }
     if (closed) store.set("openFolders", [...S.openFolders]);
@@ -2001,6 +2047,7 @@
     const e = D.trash[n]; if (!e) return;
     D.trash.splice(n, 1);
     if (e.item.folder && !folder(e.item.folder)) e.item.folder = null;
+    if (e.type === "goal") { const p = hzPage(e.item.page); e.item.page = p.id; e.item.h = hzCol(e.item).id; } // its page or column may be gone
     TYPES[e.type].list().unshift(e.item);
     toast(TYPES[e.type].name(e.item) + " restored");
   }
@@ -2029,7 +2076,82 @@
   }
   function openItem(t, id) {
     if (t === "deck") return A.study(id);
-    const x = find(t, id); if (x) go(TYPES[t].route(x));
+    const x = find(t, id); if (!x) return;
+    if (t === "event") return openEditor(null, JSON.parse(JSON.stringify(x)));
+    if (t === "timeline" || t === "goal") return openPlanDialog(t, {}, id);
+    go(TYPES[t].route(x));
+  }
+
+  /* timeline and goal dialog: new, or (with editId) the same dialog filled with an existing element */
+  const PD_CRUMB = { timeline: ["chart-gantt", "Timelines"], goal: ["telescope", "Horizons"] };
+  const PD_SEGS = { conf: [["on", "On track"], ["risk", "At risk"], ["idea", "Idea"]] };
+  function openPlanDialog(t, preset = {}, editId) {
+    const x = editId && find(t, editId); if (editId && !x) return;
+    S.pdraft = t === "goal"
+      ? Object.assign({ t, name: "", desc: "", page: curHzPage().id, h: null, conf: "on", folder: null }, preset, x ? { id: x.id, name: x.title, desc: x.desc || "", page: x.page, h: x.h, conf: x.conf, folder: x.folder || null } : {})
+      : Object.assign({ t, name: "", start: TODAY_ISO, end: addIso(TODAY_ISO, 27), folder: null }, preset, x ? { id: x.id, name: x.name, start: x.start, end: x.end, folder: x.folder || null } : {});
+    if (t === "goal") { const d = S.pdraft; d.page = hzPage(d.page).id; d.h = hzCol(d).id; }
+    openLayer(planDialogHtml(), l => { const n = l.querySelector("#pd-name"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); });
+  }
+  function planDialogHtml() {
+    const d = S.pdraft, f = folder(d.folder), T = TYPES[d.t], isNew = !d.id;
+    const field = (icon, body) => `<div class="ce-f">${ic(icon, 16, "var(--text-tertiary)")}<div class="ce-fb">${body}</div></div>`;
+    const seg = k => `<div class="seg">${PD_SEGS[k].map(([v, l]) => `<button class="${d[k] === v ? "on" : ""}" data-a="pd-set:${k}|${v}">${l}</button>`).join("")}</div>`;
+    // goals: page (only once there is more than one) and that page's own columns
+    const pg = d.t === "goal" && hzPage(d.page);
+    const body = d.t === "goal" ? (D.hzPages.length > 1 ? field("columns-3", `<span class="chip" data-a="pd-page" title="Horizon page">${ic("telescope", 13)}${esc(pg.name || "Untitled")}${ic("chevron-down", 12)}</span>`) : "")
+        + field("telescope", `<div class="seg hz-seg">${pg.cols.map(c => `<button class="${d.h === c.id ? "on" : ""}" data-a="pd-set:h|${c.id}">${esc(c.name || "Untitled")}</button>`).join("")}</div>`) + field("activity", seg("conf"))
+      : field("calendar-range", `<div class="ce-when"><input class="input ce-date" id="pd-start" type="date" value="${d.start}"><span>–</span><input class="input ce-date" id="pd-end" type="date" value="${d.end}"></div>`);
+    return `<div class="dialog" role="dialog" aria-modal="true">
+      <div class="dh"><span class="pill-crumb">${f ? folderIcon(f, 13) + esc(f.name) : ic(PD_CRUMB[d.t][0], 13) + (d.t === "goal" ? esc(pg.name || "Untitled") : PD_CRUMB[d.t][1])}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">${isNew ? "New" : "Edit"} ${T.label.toLowerCase()}</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db"><input class="big" id="pd-name" placeholder="${d.t === "goal" ? "What do you want to reach?" : "Timeline name"}" value="${esc(d.name)}" autocomplete="off">
+        ${d.t === "goal" ? `<textarea id="pd-desc" class="fd-desc" placeholder="Add a description…">${esc(d.desc || "")}</textarea>` : ""}
+        ${body}${field("folder", folderField(d.folder, "pd-folder"))}</div>
+      <div class="df">${isNew ? "" : `<button class="btn danger-btn" data-a="pd-trash">${ic("trash-2", 14)}Move to trash</button>`}<span style="flex:1"></span><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="pd-save">${isNew ? "Create " + T.label.toLowerCase() : "Save"} ${kbd([MOD, "⏎"])}</button></div></div>`;
+  }
+  function syncPlanDraft() {
+    const d = S.pdraft, v = id => { const el = layer && layer.querySelector("#" + id); return el ? el.value : null; };
+    d.name = v("pd-name") ?? d.name; d.desc = v("pd-desc") ?? d.desc; d.start = v("pd-start") || d.start; d.end = v("pd-end") || d.end;
+  }
+  function redrawPlanDialog() { syncPlanDraft(); if (!layer) return; layer.innerHTML = planDialogHtml(); layer.firstElementChild.style.animation = "none"; }
+  function savePlanDialog() {
+    syncPlanDraft();
+    const d = S.pdraft, name = d.name.trim();
+    if (!name) { const n = layer.querySelector("#pd-name"); n && n.focus(); return; }
+    const fields = d.t === "goal" ? { title: name, desc: (d.desc || "").trim(), page: d.page, h: d.h, conf: d.conf, folder: d.folder } : { name, start: d.start, end: d.end < d.start ? d.start : d.end, folder: d.folder };
+    const x = d.id && find(d.t, d.id);
+    if (x) Object.assign(x, fields); else TYPES[d.t].list().push(Object.assign({ id: uid(d.t === "goal" ? "g" : "tl") }, fields));
+    if (d.folder) revealFolder(d.folder);
+    S.pdraft = null; closeLayer(); render();
+    toast(x ? TYPES[d.t].label + " saved" : TYPES[d.t].label + " created" + (d.folder ? " in " + folderName(d.folder) : ""));
+  }
+
+  /* horizon pages and their columns */
+  const HZ_TEMPLATE = () => [["Now", "This quarter"], ["Next", "Next quarter"], ["Later", "6–12 months"]].map(([name, sub]) => ({ id: uid("c"), name, sub }));
+  function addHzPage(cols, name = "New horizon") {
+    const p = { id: uid("hz"), name, cols };
+    D.hzPages.push(p); S.openFolders.add("x-hz");
+    go("plan/horizons/" + p.id); focusEdit(`[data-edit="hz-page:${p.id}"]`);
+  }
+  function addHzCol(pid, at) {
+    const p = hzPage(pid), c = { id: uid("c"), name: "New column", sub: "" };
+    p.cols.splice(at == null ? p.cols.length : at, 0, c); render();
+    focusEdit(`[data-edit="hz-col:${p.id}:${c.id}"]`);
+  }
+  // a column's goals move to its neighbour, so deleting a column never loses anything
+  function deleteHzCol(pid, cid) {
+    const p = hzPage(pid), i = p.cols.findIndex(c => c.id === cid);
+    if (p.cols.length < 2) return toast("A page needs at least one column");
+    const [c] = p.cols.splice(i, 1), to = p.cols[Math.max(0, i - 1)], moved = D.horizons.filter(x => x.page === p.id && x.h === c.id);
+    moved.forEach(x => x.h = to.id); render();
+    toast("Column deleted" + (moved.length ? ` · ${moved.length} ${moved.length === 1 ? "goal" : "goals"} moved to ${to.name || "Untitled"}` : ""));
+  }
+  function deleteHzPageDialog(pid) {
+    const p = hzPage(pid), n = D.horizons.filter(x => x.page === p.id).length;
+    if (D.hzPages.length < 2) return toast("Keep at least one horizon page");
+    openLayer(`<div class="dialog" style="width:min(440px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">Delete “${esc(p.name || "Untitled")}”?</span></div>
+      <div class="db"><p style="margin:0;color:var(--text-secondary)">${n ? `Its ${n} ${n === 1 ? "goal moves" : "goals move"} to the trash. Restored goals land on the first horizon page.` : "This page has no goals."}</p></div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button><button class="btn danger-btn" data-a="hz-page-del:${p.id}">Delete page</button></div></div>`);
   }
   // folder "…" / right-click menu
   function folderMenu(el, id) {
@@ -2120,6 +2242,8 @@
   const ctxFolder = () => S.route.startsWith("folder/") ? S.route.split("/")[1] : null;
   function createItem(t, fid = null) {
     if (t === "todo") return openTodoDialog({ folder: fid });
+    if (t === "event") { const s = Math.min(1380, Math.ceil((nowMin() + 1) / 60) * 60); return openEditor(null, Object.assign(newEvent({ type: "event", date: TODAY_ISO, start: s, end: Math.min(1440, s + CP().duration), allDay: false }), { folder: fid })); }
+    if (t === "timeline" || t === "goal") return openPlanDialog(t, { folder: fid });
     if (t === "project") return openFolderSettings(null, { parent: fid, project: true, icon: "folder-kanban" });
     if (t === "folder") return openFolderSettings(null, { parent: fid });
     if (fid) revealFolder(fid);
@@ -2128,7 +2252,7 @@
     else if (t === "sticky") { const id = uid("s"); D.stickies.unshift({ id, text: "", color: "amber", updated: "now", folder: fid }); go("work/stickies/" + id); setTimeout(() => { const el = document.querySelector(`[data-edit="sticky:${id}"]`); el && el.focus(); }); }
     else if (t === "page") { const id = uid("pg"); D.pages.push({ id, icon: "file-text", title: "Untitled", body: [""], folder: fid }); go("wiki/" + id); setTimeout(() => { const h = document.querySelector("[data-edit^='page-title']"); if (h) { h.focus(); document.execCommand && document.execCommand("selectAll"); } }); }
   }
-  const QC = { plan: [["todo", "circle", "ToDo", ["C"]], ["project", "folder-kanban", "Project folder"]], content: [["note", "file-text", "Note"], ["canvas", "layout-dashboard", "Canvas"], ["sticky", "sticky-note", "Sticky"], ["page", "book-open", "Learn page"]] };
+  const QC = { plan: [["todo", "circle", "ToDo", ["C"]], ["event", "calendar", "Event"], ["timeline", "chart-gantt", "Timeline"], ["goal", "telescope", "Horizon goal"], ["project", "folder-kanban", "Project folder"]], content: [["note", "file-text", "Note"], ["canvas", "layout-dashboard", "Canvas"], ["sticky", "sticky-note", "Sticky"], ["page", "book-open", "Learn page"]] };
   function quickCreate(el, fid = ctxFolder(), fams = ["plan", "content"]) {
     const items = [];
     fams.forEach(fam => { items.push({ head: fam === "plan" ? "Plan" : "Content" }); QC[fam].forEach(([t, icon, label, k]) => items.push({ icon, label, kbd: k, run: () => createItem(t, fid) })); });
@@ -2266,6 +2390,37 @@
     newproject: () => createItem("project", ctxFolder()),
     newpage: () => createItem("page", ctxFolder()),
     newtodo: () => openTodoDialog({ folder: ctxFolder() }),
+    newtimeline: (v) => openPlanDialog("timeline", { folder: v || ctxFolder() }),
+    newgoal: (v) => { const [page, h] = (v || "").split("|"); openPlanDialog("goal", { folder: ctxFolder(), page: page || curHzPage().id, h: h || null }); },
+    "pd-page": (v, el) => { syncPlanDraft(); const d = S.pdraft; openMenu(el, D.hzPages.map(p => ({ icon: "columns-3", label: p.name || "Untitled", check: d.page === p.id, run: () => { d.page = p.id; d.h = hzCol(d).id; redrawPlanDialog(); } }))); },
+    "hz-page-add": (v, el) => openMenu(el, [
+      { icon: "columns-3", label: "Now · Next · Later", run: () => addHzPage(HZ_TEMPLATE()) },
+      { icon: "square-dashed", label: "Empty page", run: () => addHzPage([{ id: uid("c"), name: "New column", sub: "" }]) }]),
+    "hz-page-menu": (v, el) => openMenu(el, [
+      { icon: "pencil", label: "Rename", run: () => focusEdit(`[data-edit="hz-page:${v}"]`) },
+      { icon: "plus", label: "Add column", run: () => addHzCol(v) },
+      { icon: "copy-plus", label: "Duplicate page", run: () => { const p = hzPage(v); addHzPage(p.cols.map(c => ({ id: uid("c"), name: c.name, sub: c.sub })), p.name + " (copy)"); } },
+      { icon: "columns-3", label: "New horizon page", run: () => addHzPage(HZ_TEMPLATE()) }, "-",
+      { icon: "trash-2", color: "var(--danger)", label: "Delete page…", run: () => deleteHzPageDialog(v) }]),
+    "hz-page-del": (v) => {
+      const goals = D.horizons.filter(x => x.page === v); goals.forEach(x => trashItem("goal", x.id));
+      D.hzPages = D.hzPages.filter(p => p.id !== v); closeLayer(); go("plan/horizons"); toast("Page deleted" + (goals.length ? " · goals moved to the trash" : ""));
+    },
+    "hz-col-add": (v) => addHzCol(v),
+    "hz-col-menu": (v, el) => { const [pid, cid] = v.split("|"), p = hzPage(pid), i = p.cols.findIndex(c => c.id === cid);
+      const swap = j => { [p.cols[i], p.cols[j]] = [p.cols[j], p.cols[i]]; render(); };
+      openMenu(el, [
+        { icon: "pencil", label: "Rename", run: () => focusEdit(`[data-edit="hz-col:${pid}:${cid}"]`) },
+        { icon: "text", label: "Edit subtitle", run: () => focusEdit(`[data-edit="hz-sub:${pid}:${cid}"]`) },
+        { icon: "plus", label: "Add goal", run: () => A.newgoal(pid + "|" + cid) }, "-",
+        ...(i > 0 ? [{ icon: "arrow-left", label: "Move left", run: () => swap(i - 1) }] : []),
+        ...(i < p.cols.length - 1 ? [{ icon: "arrow-right", label: "Move right", run: () => swap(i + 1) }] : []),
+        { icon: "plus", label: "Add column to the right", run: () => addHzCol(pid, i + 1) },
+        ...(p.cols.length > 1 ? ["-", { icon: "trash-2", color: "var(--danger)", label: "Delete column", run: () => deleteHzCol(pid, cid) }] : [])]); },
+    "pd-set": (v) => { const [k, val] = v.split("|"); syncPlanDraft(); S.pdraft[k] = val; redrawPlanDialog(); },
+    "pd-folder": (v, el) => { syncPlanDraft(); folderPicker(el, S.pdraft.folder, fid => { S.pdraft.folder = fid; redrawPlanDialog(); }); },
+    "pd-save": () => savePlanDialog(),
+    "pd-trash": () => { const d = S.pdraft; S.pdraft = null; closeLayer(); trashItem(d.t, d.id); render(); },
     qc: (v, el) => quickCreate(el, v || ctxFolder()),
     qcfam: (v, el) => { const [fam, fid] = v.split("|"); quickCreate(el, fid, [fam]); },
     close: () => closeLayer(),
@@ -2481,6 +2636,16 @@
     const el = e.target.closest && e.target.closest("[data-edit]");
     if (!el) return;
     const [kind, id, n] = el.dataset.edit.split(":"), text = el.innerText.trim();
+    // horizon page / column names and subtitles; textContent because column names are shown upper-case; an empty name keeps the old one
+    if (kind === "hz-page" || kind === "hz-col" || kind === "hz-sub") {
+      const p = D.hzPages.find(x => x.id === id), c = p && p.cols.find(x => x.id === n), val = el.textContent.replace(/\s+/g, " ").trim();
+      if (!p || (kind !== "hz-page" && !c)) return;
+      if (kind === "hz-sub") c.sub = val;
+      else if (val) { if (kind === "hz-page") p.name = val; else c.name = val; }
+      el.textContent = kind === "hz-page" ? p.name : kind === "hz-col" ? c.name : c.sub;
+      if (kind === "hz-page") document.querySelectorAll(`.sidebar [data-a="go:plan/horizons/${id}"] .lbl`).forEach(l => l.textContent = p.name);
+      save(); return;
+    }
     if (kind === "page-title" && text) D.pages.find(p => p.id === id).title = text;
     if (kind === "page-body") D.pages.find(p => p.id === id).body[+n] = text;
     if (kind === "note-title" || kind === "note-body") { // update the list row in place (no re-render, so the next click still lands)
@@ -2503,6 +2668,7 @@
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); layer ? closeLayer() : openPalette(); return; }
     if (e.key === "Escape") { if (menuEl) closeMenu(); else if (layer) closeLayer(); else if (calPop) closeCalPop(); else if (typing) e.target.blur(); return; }
     if (layer && layer.querySelector(".cal-ed") && ((e.metaKey || e.ctrlKey) && e.key === "Enter" || (e.target.id === "ce-title" && e.key === "Enter"))) { e.preventDefault(); saveEd(); return; }
+    if (e.key === "Enter" && e.target.dataset && /^hz-/.test(e.target.dataset.edit || "")) { e.preventDefault(); e.target.blur(); return; } // horizon names are single-line
     if (e.target.id === "ce-guest" && (e.key === "Enter" || e.key === ",")) { e.preventDefault(); syncEd(); addGuest(e.target.value); return; }
     if (e.target.id === "cd-h" && e.key === "Enter") { e.preventDefault(); A["cal-tdur"]("custom"); return; }
     if (e.target.id === "cq-title" && e.key === "Enter") { e.preventDefault(); saveQuick(); return; }
@@ -2511,6 +2677,7 @@
     if (e.target.id === "cal-q" && e.key === "Enter") { e.preventDefault(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && layer && S.draft && layer.querySelector("#dtitle")) { submitCreate(); return; }
     if (e.target.id === "fd-name" && e.key === "Enter") { e.preventDefault(); saveFolderDialog(); return; }
+    if (layer && S.pdraft && layer.querySelector("#pd-name") && ((e.metaKey || e.ctrlKey) && e.key === "Enter" || (e.target.id === "pd-name" && e.key === "Enter"))) { e.preventDefault(); savePlanDialog(); return; }
     if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(e.target.value); return; }
     if (e.target.id === "tutor-prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); tutorAsk(e.target.value); return; }
     if (e.target.id === "asst-prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askPanel(e.target.value); return; }

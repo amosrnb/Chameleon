@@ -420,6 +420,21 @@ button:focus-visible,.nav:focus-visible,[tabindex]:focus-visible{outline:none;bo
 .tl-fill{position:absolute;inset:0 auto 0 0;background:var(--accent);opacity:.35}
 .tl-lbl{position:relative;padding:0 8px;font:var(--type-small);color:var(--text-primary);white-space:nowrap}
 .tl-today{position:absolute;top:0;bottom:0;width:1px;background:var(--danger)}
+/* short bars: the label runs on past the bar's end instead of being cut off */
+.tl-row .tl-track{overflow:hidden}
+.tl-row .tl-bar{overflow:visible}
+.tl-fill{border-radius:inherit}
+.tl-end .tl-lbl{position:absolute;right:calc(100% + 2px)}
+.tl-row .tl-name{display:flex;align-items:center;gap:8px;min-width:0}
+.tl-row:not(.tl-group) .tl-name{padding-left:22px;color:var(--text-secondary)}
+.tl-group{height:40px;margin-top:10px;background:var(--bg-raised);border-top:1px solid var(--border-subtle)}
+.tl-group .tl-name{font-weight:600;color:var(--text-primary)}
+.tl-name>span:not(.tl-tag){overflow:hidden;text-overflow:ellipsis}
+.tl-tag{flex:none;display:inline-flex;align-items:center;gap:4px;font:var(--type-small);font-weight:400;color:var(--text-tertiary)}
+.tl-gact{display:flex;align-items:center;justify-content:flex-end;gap:8px;color:var(--text-tertiary)}
+.tl-none{cursor:default}
+.tl-none:hover{background:transparent}
+.tl-none .tl-name{font-style:italic;color:var(--text-tertiary)}
 
 /* ---------- Plan: calendar ---------- */
 
@@ -482,11 +497,21 @@ button:focus-visible,.nav:focus-visible,[tabindex]:focus-visible{outline:none;bo
   .asst{position:fixed;z-index:30;top:44px;right:0;bottom:0;width:min(380px,100vw);margin:0;border-radius:var(--radius-md) 0 0 0;box-shadow:var(--shadow-dialog)}
 }
 
-/* ---------- Plan: horizons (Now / Next / Later) ---------- */
-.hz{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:20px 16px 40px}
+/* ---------- Plan: horizons (any number of pages and columns; columns come inline from the page) ---------- */
+.hz{display:grid;align-items:start;gap:12px;padding:20px 16px 40px}
 .hz-col{display:flex;flex-direction:column;gap:8px;min-width:0}
-.hz-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px}
-.hz-sub{font:var(--type-small);color:var(--text-tertiary);padding:0 4px 4px}
+.hz-head{display:flex;align-items:center;gap:8px;min-height:24px;padding:0 0 0 4px}
+.hz-name{flex:1;min-width:0;cursor:text;overflow-wrap:anywhere}
+.hz-head .ib{opacity:0;transition:opacity .12s}
+.hz-col:hover .hz-head .ib,.hz-head .ib:focus-visible{opacity:1}
+.hz-sub{font:var(--type-small);color:var(--text-tertiary);padding:0 4px 4px;cursor:text}
+.hz-sub:empty:before{opacity:0}
+.hz-col:hover .hz-sub:empty:before,.hz-sub:focus:before{opacity:1}
+@media (hover:none){.hz-head .ib,.hz-sub:empty:before{opacity:1}}
+.hz-title{cursor:text;padding:0 2px}
+.hz-d{font:var(--type-small);color:var(--text-secondary);white-space:pre-line;margin-top:-4px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.hz-newcol{margin-top:0}
+.hz-seg{flex-wrap:wrap;max-width:100%}
 .hz-card{background:var(--bg-raised);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:10px}
 .hz-card:hover{border-color:var(--border-strong)}
 .hz-t{font:var(--type-ui)}
