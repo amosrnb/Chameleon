@@ -1,6 +1,5 @@
 // Chameleon workspace — double navigation shell (product rail + contextual sidebar)
 (function () {
-  const D = window.DATA;
   const TODAY = new Date(2026, 9, 13); // prototype "today" so due-date groups stay meaningful
   const root = document.getElementById("root");
 
@@ -9,22 +8,24 @@
     get(k, d) { try { const v = localStorage.getItem("cham-" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem("cham-" + k, JSON.stringify(v)); } catch (e) {} },
   };
+  // all data is kept in the browser so edits survive a reload; a newer data.js version replaces older saves
+  const saved = store.get("data", null);
+  const D = saved && saved.version === window.DATA.version ? saved : window.DATA;
+  let saveTimer = 0;
+  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set("data", D), 150); };
 
   /* ---------- state ---------- */
   const S = {
-    route: store.get("route", "work/home"),
+    route: store.get("route", "pin/inbox"),
     theme: store.get("theme", "dark"),
     collapsed: innerWidth < 900, // on narrow screens the sidebar overlays content, so start closed
     closedSecs: new Set(store.get("closedSecs", [])),
     openFolders: new Set(store.get("openFolders", [])),
-    curProd: store.get("prod", "work"), // product whose sidebar is shown (pinned "pin/…" routes keep it)
-    closedGroups: new Set(),
-    tab: "items",
-    groupBy: "status",
-    filterMine: false,
-    selInbox: null,
+    curProd: store.get("prod", "work"), // product whose sidebar is shown ("pin/…" and "folder/…" routes keep it)
     lastRoute: { plan: "plan/timelines", work: "work/notes", wiki: "wiki/flashcards", files: "files/folders", ai: "ai/new", settings: "settings/general" },
-    draft: null,
+    draft: null, // ToDo being created in the dialog
+    fdraft: null, // folder being created or edited in the settings dialog
+    ftab: "plan", // tab on the folder page: plan | content | folders
     prefs: { notifications: true, digest: false, autoAssign: true, publicLinks: false },
     chatSeq: 3,
     study: { deck: null, i: 0, flipped: false, good: 0 }, // flashcard session
@@ -32,31 +33,69 @@
     dump: { deck: "d1", text: "", result: null }, // brain dump session
     summary: "page:design", // source shown on the tutor summary page
     notesLabel: null, // label filter on the notes overview
-    timer: { running: false, start: 0, issue: "CHA-128" },
+    timer: { running: false, start: 0, todo: "t-128" },
     asst: { open: false, chatId: null, draft: "", model: "Claude Sonnet 5.5", mode: "build" },
   };
 
-  if (S.route.split("/")[0] !== "pin") S.curProd = S.route.split("/")[0];
+  if (!/^(pin|folder)$/.test(S.route.split("/")[0])) S.curProd = S.route.split("/")[0];
 
   /* ---------- helpers ---------- */
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const ic = (n, size = 16, color) => `<i class="icon-${n}" aria-hidden="true" style="font-size:${size}px;width:${size}px;height:${size}px${color ? ";color:" + color : ""}"></i>`;
   const initials = n => n.split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase();
   const av = (n, s = 20) => `<span class="av" title="${esc(n)}" style="width:${s}px;height:${s}px;font-size:${Math.round(s * .45)}px;background:${D.people[n] || "var(--gray-6)"}">${initials(n)}</span>`;
-  const status = id => D.statuses.find(s => s.id === id);
-  const prio = id => D.priorities.find(p => p.id === id);
-  const project = id => D.projects.find(p => p.id === id);
-  const issue = id => D.issues.find(i => i.id === id);
+  const prio = id => D.priorities.find(p => p.id === id) || D.priorities[0];
   const parseDue = d => { if (!d) return null; const [day, mon] = d.split(" "); const m = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ").indexOf(mon); return new Date(2026, m, +day); };
   const dayDiff = d => Math.round((parseDue(d) - TODAY) / 864e5);
   const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"; // shortcut modifier label
   const kbd = keys => keys.map(k => `<span class="kbd">${k}</span>`).join("");
+  const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const nav = (route, icon, label, extra = {}) => {
     const active = S.route === route || (extra.match && S.route.startsWith(extra.match));
-    const lead = extra.emoji ? `<span class="emoji">${extra.emoji}</span>` : ic(icon);
+    const lead = extra.lead || (extra.emoji ? `<span class="emoji">${extra.emoji}</span>` : ic(icon, 16, extra.color));
     const on = extra.active != null ? extra.active : active;
-    return `<button class="nav${on ? " active" : ""}${extra.sub ? " sub" : ""}" data-a="${extra.action || "go:" + route}">${lead}<span class="lbl">${esc(label)}</span>${extra.count ? `<span class="count">${extra.count}</span>` : ""}</button>`;
+    return `<button class="nav${on ? " active" : ""}${extra.sub ? " sub" : ""}" data-a="${extra.action || "go:" + route}"${extra.pad ? ` style="padding-left:${extra.pad}px"` : ""}${extra.drag ? ` data-drag="${extra.drag}" draggable="true"` : ""}>${lead}<span class="lbl">${esc(label)}</span>${extra.count ? `<span class="count">${extra.count}</span>` : ""}</button>`;
   };
+
+  /* ---------- elements: one registry for every type ---------- */
+  // fam "plan" = things you schedule, fam "content" = things you make; the two are always shown apart
+  const TYPES = {
+    todo: { fam: "plan", label: "ToDo", plural: "ToDos", icon: x => x.done ? "circle-check" : "circle", list: () => D.todos, name: x => x.text, route: () => "pin/todos" },
+    goal: { fam: "plan", label: "Goal", plural: "Goals", icon: () => "telescope", list: () => D.horizons, name: x => x.title, route: () => "plan/horizons" },
+    note: { fam: "content", label: "Note", plural: "Notes", icon: () => "file-text", list: () => D.notes, name: x => x.title || "Untitled", route: x => "work/notes/" + x.id },
+    canvas: { fam: "content", label: "Canvas", plural: "Canvases", icon: () => "layout-dashboard", list: () => D.canvases, name: x => x.name, route: x => "work/canvas/" + x.id },
+    sticky: { fam: "content", label: "Sticky", plural: "Stickies", icon: () => "sticky-note", list: () => D.stickies, name: x => (x.text.split("\n")[0] || "Empty sticky").slice(0, 32), route: x => "work/stickies/" + x.id },
+    deck: { fam: "content", label: "Deck", plural: "Decks", icon: () => "gallery-vertical-end", list: () => D.decks, name: x => x.name, route: x => "wiki/flashcards/" + x.id },
+    page: { fam: "content", label: "Page", plural: "Pages", icon: x => x.icon || "file-text", list: () => D.pages, name: x => x.title || "Untitled", route: x => "wiki/" + x.id },
+    file: { fam: "content", label: "File", plural: "Files", icon: x => x.icon || "file", list: () => D.files, name: x => x.name, route: x => "files/file/" + x.id },
+    chat: { fam: "content", label: "Chat", plural: "Chats", icon: () => "message-square", list: () => D.chats, name: x => x.title, route: x => "ai/" + x.id },
+  };
+  const TYPE_KEYS = Object.keys(TYPES);
+  // which element types each product's sidebar shows inside the folder tree
+  const PROD_TYPES = { plan: ["todo", "goal"], work: ["note", "canvas", "sticky"], wiki: ["deck", "page"], files: TYPE_KEYS, ai: ["chat"] };
+  const find = (t, id) => TYPES[t] && TYPES[t].list().find(x => x.id === id);
+  const todo = id => find("todo", id);
+  const allItems = () => TYPE_KEYS.flatMap(t => TYPES[t].list().map(x => ({ t, x })));
+  const itemsIn = (fid, types = TYPE_KEYS) => allItems().filter(({ t, x }) => (x.folder || null) === fid && types.includes(t));
+  const famTypes = fam => TYPE_KEYS.filter(t => TYPES[t].fam === fam);
+
+  /* ---------- folders: one global tree ---------- */
+  const FOLDER_COLORS = { "": "", blue: "var(--blue-500)", green: "var(--green-500)", amber: "var(--amber-500)", violet: "var(--violet-500)", red: "var(--red-500)" };
+  const FOLDER_ICONS = ["folder", "book-open", "graduation-cap", "calculator", "flask-conical", "languages", "palette", "code", "briefcase", "box", "megaphone", "user-round", "heart", "globe", "music", "dumbbell"];
+  const folder = id => id ? D.folders.find(f => f.id === id) : null;
+  const kids = id => D.folders.filter(f => (f.parent || null) === (id || null));
+  const fpath = id => { const out = []; for (let f = folder(id); f; f = folder(f.parent)) out.unshift(f); return out; };
+  const descendants = id => kids(id).flatMap(k => [k, ...descendants(k.id)]);
+  const subtreeIds = id => [id, ...descendants(id).map(f => f.id)];
+  const deepItems = (id, types) => { const ids = new Set(subtreeIds(id)); return allItems().filter(({ t, x }) => ids.has(x.folder) && (!types || types.includes(t))); };
+  const folderIcon = (f, size = 16) => f.emoji ? `<span class="emoji" style="font-size:${Math.round(size * .82)}px;width:${size}px;text-align:center">${f.emoji}</span>` : ic(f.icon || "folder", size, FOLDER_COLORS[f.color || ""] || "");
+  const folderName = id => { const f = folder(id); return f ? f.name : ""; };
+  // knowledge base: the nearest explicit kb flag up the tree decides (subfolders inherit, can switch off)
+  const kbState = f => { for (let x = f; x; x = folder(x.parent)) if (x.kb != null) return { on: x.kb, from: x }; return { on: false, from: null }; };
+  // project folders: progress = done / all ToDos anywhere inside the folder
+  const projProgress = f => { const ts = deepItems(f.id, ["todo"]).map(i => i.x); return ts.length ? Math.round(ts.filter(t => t.done).length / ts.length * 100) : 0; };
+  const projects = () => D.folders.filter(f => f.project);
+  const revealFolder = id => fpath(id).forEach(f => S.openFolders.add(f.id));
   // Linear-style section: muted label followed by a small solid caret
   const section = (key, label, body, action = "", route) => `<div class="sec${S.closedSecs.has(key) ? " closed" : ""}" data-fold="sec:${key}"><div class="sec-head${route ? " linked" + (S.route === route || S.route.startsWith(route + "/") ? " active" : "") : ""}" data-a="${route ? "opensec:" + key + "|" + route : "sec:" + key}"><span>${label}</span>${route ? `<span class="caret-hit" data-a="sec:${key}" title="Expand / collapse"><span class="caret"></span></span>` : `<span class="caret"></span>`}${action}</div><div class="fold-body"${S.closedSecs.has(key) ? " inert" : ""}><div class="sec-body sb-group">${body}</div></div></div>`;
   const unreadCount = () => D.inbox.filter(m => m.unread).length;
@@ -109,38 +148,51 @@
       <div class="fold-body"${open ? "" : " inert"}><div class="fold-inner">${itemsHtml || `<div class="nav sub empty-sub"><span class="lbl">Empty</span></div>`}</div></div>
     </div>`;
   }
+  const FOLDERS_SEC_ACT = `<span class="ib sm sec-act" data-a="newfolder" title="New folder">${ic("plus", 14)}</span>`;
   function sidebarWork() {
-    return sbHead("newissue", "New work item  C") +
+    return sbHead("qc", "Create  C") +
       `<div class="sb-group">
-        ${expandRow("x-notes", "notebook-pen", "Notes", D.notes.map(n => nav("work/notes/" + n.id, "file-text", n.title || "Untitled", { sub: true })).join(""), "note-add", "New note", "work/notes")}
-        ${expandRow("x-canvas", "shapes", "Canvas", D.canvases.map(b => nav("work/canvas/" + b.id, "layout-dashboard", b.name, { sub: true })).join(""), "canvas-add", "New canvas", "work/canvas")}
+        ${expandRow("x-notes", "notebook-pen", "Notes", D.notes.map(n => nav("work/notes/" + n.id, "file-text", n.title || "Untitled", { sub: true, drag: "note:" + n.id })).join(""), "note-add", "New note", "work/notes")}
+        ${expandRow("x-canvas", "shapes", "Canvas", D.canvases.map(b => nav("work/canvas/" + b.id, "layout-dashboard", b.name, { sub: true, drag: "canvas:" + b.id })).join(""), "canvas-add", "New canvas", "work/canvas")}
         ${nav("work/stickies", "sticky-note", "Stickies", { match: "work/stickies" })}
       </div>
-      ${section("wfold", "Folders", D.workFolders.map(f => folderTree(f, workItem)).join(""), `<span class="ib sm sec-act" data-a="newfolder:work" title="New folder">${ic("plus", 14)}</span>`)}
+      ${section("folders", "Folders", folderForest("work"), FOLDERS_SEC_ACT)}
       ${sbFoot()}`;
   }
   function sidebarWiki() {
-    return sbHead("newpage", "New page") +
+    return sbHead("qc", "Create  C") +
       `<div class="sb-group">
         ${nav("wiki/flashcards", "gallery-vertical-end", "Flashcards", { match: "wiki/flashcards" })}
         ${expandRow("x-practice", "dumbbell", "Practice", nav("wiki/practice/test", "clipboard-check", "Test", { sub: true }) + nav("wiki/practice/braindump", "brain", "Brain dump", { sub: true }), null, null, "wiki/practice")}
         ${expandRow("x-tutor", "graduation-cap", "AI Tutor", nav("wiki/tutor/chat", "messages-square", "Conversation mode", { sub: true }) + nav("wiki/tutor/summary", "scroll-text", "Summary", { sub: true }), null, null, "wiki/tutor")}
         ${nav("wiki/progress", "trending-up", "Track & progress")}
       </div>
-      ${section("lfold", "Folders", D.learnFolders.map(f => folderTree(f, learnItem)).join(""), `<span class="ib sm sec-act" data-a="newfolder:learn" title="New folder">${ic("plus", 14)}</span>`)}
+      ${section("folders", "Folders", folderForest("wiki"), FOLDERS_SEC_ACT)}
       ${sbFoot()}`;
   }
-  // learn folders hold wiki pages; files folders hold files (tree ids are prefixed so they never clash with other folders)
-  const learnItem = it => { const p = D.pages.find(x => x.id === it.page); return p ? nav("wiki/" + p.id, p.icon, p.title, { sub: true }) : ""; };
-  // ai folders hold chats
-  const aiItem = it => { const c = D.chats.find(x => x.id === it.chat); return c ? nav("ai/" + c.id, "message-square", c.title, { sub: true }) : ""; };
-  const fileItem = f => nav("files/file/" + D.files.indexOf(f), f.icon, f.name, { sub: true });
-  const liveFiles = () => D.files.filter(f => !f.trashed);
+  const fileItem = f => nav("files/file/" + f.id, f.icon, f.name, { sub: true });
+  const liveFiles = () => D.files;
   const kbTree = k => ({ id: k.id, name: k.name, items: liveFiles().filter(f => k.files.includes(f.name)) });
-  const fileFolder = f => ({ id: "fo-" + f.id, name: f.name, items: liveFiles().filter(x => x.folder === f.id) });
-  // what a plan folder can hold, and where each kind opens
-  const PLAN_KINDS = { timeline: ["chart-gantt", "plan/timelines"], horizon: ["telescope", "plan/horizons"], report: ["chart-column", "plan/analytics"] };
-  // expandable folder row (like the project tree in Work): click only shows/hides its items; an item opens itself
+  // one row of an element inside the sidebar tree; ToDos and goals share a page, so they never show as active
+  function treeItem({ t, x }, depth) {
+    const T = TYPES[t], route = T.route(x);
+    return nav(route, T.icon(x), T.name(x), { sub: true, pad: 30 + Math.min(depth, 4) * 14, drag: t + ":" + x.id, active: T.fam === "plan" ? false : null, color: t === "todo" && x.done ? "var(--success)" : "" });
+  }
+  // a folder in the global tree: the row opens the folder page, the caret only folds; shows the product's own types
+  function folderNode(f, depth, types) {
+    const open = S.openFolders.has(f.id), pad = 8 + Math.min(depth, 4) * 14;
+    const items = itemsIn(f.id, types), plan = items.filter(i => TYPES[i.t].fam === "plan"), cont = items.filter(i => TYPES[i.t].fam === "content");
+    const famLbl = (l, list) => plan.length && cont.length ? `<div class="tree-fam label-mono" style="padding-left:${pad + 22}px">${l}</div>` + list : list;
+    const body = kids(f.id).map(k => folderNode(k, depth + 1, types)).join("")
+      + famLbl("Plan", plan.map(i => treeItem(i, depth)).join("")) + famLbl("Content", cont.map(i => treeItem(i, depth)).join(""));
+    const n = deepItems(f.id, types).length;
+    return `<div class="tree${open ? " open" : ""}" data-fold="tree:${f.id}">
+      <button class="nav team${S.route === "folder/" + f.id ? " active" : ""}" style="padding-left:${pad}px" data-a="openfolder:${f.id}" data-drop="${f.id}" data-drag="folder:${f.id}" draggable="true" aria-expanded="${open}">${folderIcon(f)}<span class="lbl">${esc(f.name)}</span><span class="caret-hit" data-a="tfold:${f.id}" title="${open ? "Collapse" : "Expand"}"><span class="caret"></span></span><span class="count">${n || ""}</span></button>
+      <div class="fold-body"${open ? "" : " inert"}><div class="fold-inner">${body || `<div class="nav sub empty-sub" style="padding-left:${pad + 22}px"><span class="lbl">Empty</span></div>`}</div></div>
+    </div>`;
+  }
+  const folderForest = prod => kids(null).map(f => folderNode(f, 0, PROD_TYPES[prod] || TYPE_KEYS)).join("") || `<div class="nav sub empty-sub" style="padding-left:8px"><span class="lbl">No folders yet</span></div>`;
+  // expandable list row used by the knowledge base collections (flat lists of files)
   function folderTree(f, itemRow, icons = ["folder", "folder-open"]) {
     const open = S.openFolders.has(f.id);
     const items = f.items.length
@@ -151,30 +203,16 @@
       <div class="fold-body"${open ? "" : " inert"}><div class="fold-inner">${items}</div></div>
     </div>`;
   }
-  const planItem = (it, n, f) => nav(`plan/item/${f.id}/${n}`, PLAN_KINDS[it.kind][0], it.name, { sub: true });
-  // work folders hold projects; an item opens its project
-  const itemFolder = (kind, id) => D.workFolders.find(f => f.items.some(i => i[kind] === id));
-  const noteFolder = n => itemFolder("note", n.id);
-  const stickyLabel = s => (s.text.split("\n")[0] || "Empty sticky").slice(0, 32);
-  // folder picker menu: moves an item between work folders (or out of all of them)
-  function folderMenu(el, kind, id, onMove) {
-    const cur = itemFolder(kind, id);
-    const move = f => { if (cur) cur.items = cur.items.filter(i => i[kind] !== id); if (f) { f.items.push({ [kind]: id }); S.openFolders.add(f.id); } onMove && onMove(); render(); };
-    openMenu(el, D.workFolders.map(f => ({ icon: "folder", label: f.name, check: cur === f, run: () => move(f) })).concat(["-", { icon: "folder-x", label: "No folder", check: !cur, run: () => move(null) }]));
-  }
-  const workItem = it => {
-    if (it.sticky) { const s = D.stickies.find(x => x.id === it.sticky); return s ? nav("work/stickies/" + s.id, "sticky-note", stickyLabel(s), { sub: true }) : ""; }
-    if (it.note) { const n = D.notes.find(x => x.id === it.note); return n ? nav("work/notes/" + n.id, "file-text", n.title || "Untitled", { sub: true }) : ""; }
-    const p = project(it.project); return p ? nav("work/project/" + p.id, null, p.name, { sub: true, emoji: p.emoji, match: "work/project/" + p.id }) : ""; };
+  const stickyLabel = s => TYPES.sticky.name(s);
   function sidebarPlan() {
-    return sbHead("newproject", "New project") +
+    return sbHead("qc", "Create  C") +
       `<div class="sb-group">
         ${nav("plan/timelines", "chart-gantt", "Timelines")}
         ${nav("plan/horizons", "telescope", "Horizons")}
         ${nav("plan/time", "timer", "Time tracking")}
         ${nav("plan/analytics", "chart-column", "Analytics")}
       </div>
-      ${section("pfold", "Folders", D.planFolders.map(f => folderTree(f, planItem)).join(""), `<span class="ib sm sec-act" data-a="newfolder:plan" title="New folder">${ic("plus", 14)}</span>`)}
+      ${section("folders", "Folders", folderForest("plan"), FOLDERS_SEC_ACT)}
       ${sbFoot()}`;
   }
   function sidebarFiles() {
@@ -183,17 +221,17 @@
         ${nav("files/folders", "folders", "All folders")}
         ${nav("files/recent", "clock", "Recent")}
         ${nav("files/starred", "star", "Starred")}
-        ${nav("files/trash", "trash-2", "Trash", { count: D.files.filter(f => f.trashed).length || "" })}
+        ${nav("files/trash", "trash-2", "Trash", { count: D.trash.length || "" })}
       </div>
-      ${section("folders", "Folders", D.folders.map(f => folderTree(fileFolder(f), fileItem)).join(""), `<span class="ib sm sec-act" data-a="newfolder:files" title="New folder">${ic("plus", 14)}</span>`, "files/folders")}
-      ${section("kbase", "Knowledge base", D.knowledge.map(k => folderTree(kbTree(k), fileItem, ["book-marked", "library-big"])).join(""), `<span class="ib sm sec-act" data-a="newfolder:kb" title="New collection">${ic("plus", 14)}</span>`, "files/kb")}
+      ${section("folders", "Folders", folderForest("files"), FOLDERS_SEC_ACT, "files/folders")}
+      ${section("kbase", "Knowledge base", D.knowledge.map(k => folderTree(kbTree(k), fileItem, ["book-marked", "library-big"])).join(""), `<span class="ib sm sec-act" data-a="newcollection" title="New collection">${ic("plus", 14)}</span>`, "files/kb")}
       ${sbFoot()}`;
   }
   function sidebarAI() {
     return sbHead("go:ai/new", "New chat") +
       `<div class="sb-group">${nav("ai/new", "message-square-plus", "New chat")}</div>
-      ${section("chats", "Recent chats", D.chats.map(c => nav("ai/" + c.id, "message-square", c.title)).join(""))}
-      ${section("afold", "Folders", D.aiFolders.map(f => folderTree(f, aiItem)).join(""), `<span class="ib sm sec-act" data-a="newfolder:ai" title="New folder">${ic("plus", 14)}</span>`)}
+      ${section("chats", "Recent chats", D.chats.map(c => nav("ai/" + c.id, "message-square", c.title, { drag: "chat:" + c.id })).join(""))}
+      ${section("folders", "Folders", folderForest("ai"), FOLDERS_SEC_ACT)}
       ${sbFoot()}`;
   }
   function sidebarSettings() {
@@ -214,121 +252,170 @@
   function emptyState(icon, title, text, acts = "") {
     return `<div class="empty">${ic(icon, 44)}<h3>${title}</h3><p>${text}</p>${acts ? `<div class="acts">${acts}</div>` : ""}</div>`;
   }
-  function issueRow(i) {
-    const st = status(i.status), pr = prio(i.prio), dd = i.due ? dayDiff(i.due) : null;
-    const dueColor = i.status !== "done" && dd != null && dd < 0 ? "var(--danger)" : "";
-    return `<div class="row${i.parent ? " sub" : ""}" data-a="go:work/issue/${i.id}">
-      <button class="prio" data-a="prio:${i.id}" title="${pr.name}" style="border-color:transparent">${ic(pr.icon, 14, pr.color)}</button>
-      <span class="id">${i.id}</span>
-      <button class="status-btn" data-a="status:${i.id}" title="${st.name}">${ic(st.icon, 14, st.color)}</button>
-      <span class="t" style="${i.status === "done" ? "color:var(--text-tertiary)" : ""}">${esc(i.title)}</span>
-      <span class="tr">
-        <span class="chip" data-a="label:${i.id}"><span class="dot" style="background:${D.labels[i.label]}"></span>${esc(i.label)}</span>
-        ${i.due ? `<span class="chip date" style="${dueColor ? "color:" + dueColor : ""}">${ic("calendar", 13)}${i.due}</span>` : ""}
-        ${av(i.who, 20)}
-      </span>
-    </div>`;
+  const ago = u => !u ? "–" : u === "now" ? "just now" : u + " ago";
+  // short, type-specific detail shown next to an element in tables
+  function itemDetail(t, x) {
+    if (t === "todo") { if (x.done) return "Done"; if (!x.due) return "No date"; const dd = dayDiff(x.due); return `<span style="${dd < 0 ? "color:var(--danger)" : ""}">${x.due}</span>`; }
+    if (t === "goal") return { now: "Now", next: "Next", later: "Later" }[x.h] || "";
+    if (t === "deck") return x.cards.length + " cards";
+    if (t === "canvas") return x.items.length + " items";
+    if (t === "file") return x.size;
+    if (t === "chat") return x.log.length ? Math.ceil(x.log.length / 2) + " messages" : "Empty";
+    if (t === "page") return x.body.join(" ").trim().split(/\s+/).filter(Boolean).length + " words";
+    return ago(x.updated);
   }
-  function issueList(items) {
-    if (!items.length) return emptyState("circle-check", "Nothing here", "No work items match this view.");
-    const groups = S.groupBy === "priority"
-      ? D.priorities.slice(1).concat(D.priorities[0]).map(p => ({ key: "p" + p.id, name: p.name, icon: p.icon, color: p.color, items: items.filter(i => i.prio === p.id) }))
-      : D.statuses.map(s => ({ key: s.id, name: s.name, icon: s.icon, color: s.color, items: items.filter(i => i.status === s.id) }));
-    return groups.filter(g => g.items.length).map(g => {
-      const closed = S.closedGroups.has(g.key);
-      return `<div class="grp${closed ? " closed" : ""}" data-a="grp:${g.key}">${ic("chevron-down", 13).replace('<i class="', '<i class="chev ')}${ic(g.icon, 14, g.color)}${g.name}<span class="n">${g.items.length}</span><span style="flex:1"></span><button class="ib sm" data-a="newissue:${g.key}" title="Add">${ic("plus", 14)}</button></div>` +
-        (closed ? "" : g.items.map(issueRow).join(""));
-    }).join("");
+  // secondary column: what matters most for each type
+  function itemMeta(t, x) {
+    if (t === "todo") { const p = prio(x.prio); return p.id ? `<span style="display:inline-flex;align-items:center;gap:5px">${ic(p.icon, 12, p.color)}${p.name}</span>` : ""; }
+    if (t === "goal") return { on: "On track", risk: "At risk", idea: "Idea" }[x.conf] || "";
+    if (t === "note") return esc((x.labels || []).join(", "));
+    if (t === "deck") { const n = x.cards.filter(c => !c.known).length; return n ? n + " to learn" : "Mastered"; }
+    if (t === "file") return esc(x.owner || "");
+    return TYPES[t].label;
   }
-  function listToolbar(title, items) {
-    return `<div class="toolbar">${ic("copy", 14, "var(--text-secondary)")}<span style="font:var(--type-ui);font-weight:600">${title}</span><span class="mono" style="color:var(--accent-text)">${items.length}</span><span style="flex:1"></span>
-      <button class="btn sm${S.filterMine ? "" : " ghost"}" data-a="filter">${ic("list-filter", 13)}${S.filterMine ? "Assigned to me" : "Filter"}</button>
-      <button class="btn sm ghost" data-a="display">${ic("sliders-horizontal", 13)}Display</button>
-      <button class="btn sm primary" data-a="newissue">${ic("plus", 13)}Add work item</button></div>`;
+  // one table row for any element: open on click, drag into a folder, right-click or "…" for actions
+  function itemRow({ t, x }, opts = {}) {
+    const T = TYPES[t];
+    const lead = t === "todo" ? `<button class="todo-ck${x.done ? " on" : ""}" data-a="todo:${x.id}" title="${x.done ? "Mark as open" : "Mark as done"}">${x.done ? ic("check", 11) : ""}</button>` : ic(T.icon(x), 16, "var(--text-secondary)");
+    return `<div class="coll-row c-item${t === "todo" && x.done ? " is-done" : ""}" data-a="open:${t}|${x.id}" data-drag="${t}:${x.id}" draggable="true">
+      <span class="coll-name">${lead}<span>${esc(T.name(x))}</span>${x.starred ? ic("star", 12, "var(--warning)") : ""}</span>
+      <span class="mono" style="color:var(--text-tertiary)">${opts.folderCol ? esc(folderName(x.folder) || "No folder") : itemMeta(t, x)}</span>
+      <span class="mono" style="color:var(--text-tertiary)">${itemDetail(t, x)}</span>
+      <button class="ib sm" data-a="imenu:${t}|${x.id}" title="More">${ic("ellipsis", 14)}</button></div>`;
   }
+  const folderChip = (t, x) => { const f = folder(x.folder); return `<span class="chip${f ? "" : " is-empty"}" data-a="move:${t}|${x.id}" title="Move to folder">${f ? folderIcon(f, 13) : ic("folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`; };
+  // rows grouped by type (in registry order), each group with a small label
+  const itemGroups = (items, opts) => TYPE_KEYS.map(t => { const list = items.filter(i => i.t === t); return list.length ? `<div class="coll-sub label-mono">${TYPES[t].plural}<span>${list.length}</span></div>` + list.map(i => itemRow(i, opts)).join("") : ""; }).join("");
 
   /* ---------- views ---------- */
-  function viewHome() {
-    const open = D.issues.filter(i => i.status !== "done");
-    const mine = open.filter(i => i.who === D.me && i.due);
-    const over = mine.filter(i => dayDiff(i.due) < 0), today = mine.filter(i => dayDiff(i.due) === 0), week = mine.filter(i => dayDiff(i.due) > 0 && dayDiff(i.due) <= 7);
-    const h = new Date().getHours(), greet = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-    const card = (lbl, list, red) => `<div class="card"><div class="label-mono${red ? " red" : ""}">${lbl}</div>${list.length ? list.map(i => `<div class="it" data-a="go:work/issue/${i.id}">${ic(status(i.status).icon, 14, status(i.status).color)}<span class="mono" style="color:var(--text-tertiary)">${i.id}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.title)}</span></div>`).join("") : '<div class="none">Nothing here</div>'}</div>`;
-    const stat = (v, k, icon) => `<div class="stat"><div style="display:flex;justify-content:space-between;align-items:center"><span class="v">${v}</span>${ic(icon, 16, "var(--text-tertiary)")}</div><div class="k">${k}</div></div>`;
-    return header("Home", { lead: ic("house", 16, "var(--text-secondary)") }) + `<div class="scroll"><div class="home">
-      <h1>${greet}, ${esc(D.me.split(" ")[0])}</h1><p class="sub">Here is what needs your attention in ${esc(D.workspace.name)}.</p>
-      <div class="stats">${stat(open.length, "Open work items", "circle")}${stat(D.issues.filter(i => i.status === "progress").length, "In progress", "circle-dot")}${stat(unreadCount(), "Unread notifications", "inbox")}${stat(D.issues.filter(i => i.status === "done").length, "Done this cycle", "circle-check")}</div>
-      <div class="due-head"><h2>Due</h2><span class="label-mono">${over.length + today.length + week.length} open</span></div>
-      <div class="cols">${card("Overdue", over, true)}${card("Today", today)}${card("This week", week)}</div>
-      <div class="due-head"><h2>Projects</h2></div>
-      <div class="box">${D.projects.map(p => `<div class="prow" data-a="go:work/project/${p.id}" style="grid-template-columns:1fr 160px 60px"><span>${p.emoji}&nbsp; ${esc(p.name)}</span><span class="bar"><span style="width:${p.progress}%"></span></span><span class="mono" style="color:var(--text-tertiary);text-align:right">${p.progress}%</span></div>`).join("")}</div>
-    </div></div>`;
-  }
-  function viewInbox() {
-    const sel = D.inbox.find(m => m.id === S.selInbox);
-    const list = D.inbox.map(m => {
-      const iss = m.issue && issue(m.issue);
-      return `<div class="msg${m.unread ? " unread" : ""}${S.selInbox === m.id ? " sel" : ""}" data-a="inbox:${m.id}">${av(m.who, 28)}<div class="b"><div class="h"><span class="tt">${iss ? `<span class="mono" style="color:var(--text-tertiary)">${iss.id}</span> ${esc(iss.title)}` : esc(m.title)}</span>${m.unread ? '<span class="unread-dot"></span>' : ""}<span class="time">${m.time}</span></div><div class="s">${esc(m.body)}</div></div></div>`;
-    }).join("");
-    let detail = emptyState("inbox", "No notification selected", "Pick a notification on the left to see what changed.");
-    if (sel) {
-      const iss = sel.issue && issue(sel.issue);
-      detail = `<div class="doc"><div class="label-mono" style="margin-bottom:10px">${sel.time} ago · ${esc(sel.who)}</div><h1 style="font:var(--type-title)">${iss ? esc(iss.title) : esc(sel.title)}</h1><p>${esc(sel.body)}.</p>${iss ? `<div class="props">${chipsFor(iss)}</div><button class="btn" data-a="go:work/issue/${iss.id}">Open ${iss.id}${ic("arrow-right", 14)}</button>` : `<p>Press <span class="kbd">C</span> to create a work item, ${kbd([MOD, "S"])} to search, and <span class="kbd">[</span> to collapse the sidebar.</p>`}</div>`;
+  const stat = (v, k, icon) => `<div class="stat"><div style="display:flex;justify-content:space-between;align-items:center"><span class="v">${v}</span>${ic(icon, 16, "var(--text-tertiary)")}</div><div class="k">${k}</div></div>`;
+  // folder page: path, settings, subfolders, then Plan and Content as two separate areas
+  function viewFolder(id) {
+    const f = folder(id);
+    if (!f) return header("Folder") + emptyState("folder-x", "Folder not found", "It may have been deleted.", `<button class="btn" data-a="go:files/folders">All folders</button>`);
+    const path = fpath(id), kb = kbState(f), sub = kids(id);
+    const crumb = path.map((p, n) => n < path.length - 1 ? `<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="openfolder:${p.id}">${esc(p.name)}</span> <span class="crumb-sep">›</span> ` : esc(p.name)).join("");
+    const plan = itemsIn(id, famTypes("plan")), cont = itemsIn(id, famTypes("content"));
+    const badges = (kb.on ? `<span class="chip" data-a="fsettings:${id}" title="${kb.from && kb.from !== f ? "Inherited from " + esc(kb.from.name) : "Knowledge Base"}">${ic("library-big", 12)}Knowledge Base${kb.from && kb.from !== f ? `<span style="color:var(--text-tertiary)">· inherited</span>` : ""}</span>` : "")
+      + (f.project ? `<span class="chip" data-a="fsettings:${id}">${ic("folder-kanban", 12)}Project</span>` : "");
+    let proj = "";
+    if (f.project) {
+      const ts = deepItems(id, ["todo"]).map(i => i.x), next = (f.project.milestones || [])[0];
+      proj = `<div class="stats fd-stats">${stat(projProgress(f) + "%", "Progress", "chart-no-axes-column")}${stat(ts.filter(t => !t.done).length, "Open ToDos", "circle")}${stat(esc(f.project.target || "–"), "Target", "target")}${stat(next ? esc(next.name) : "–", next ? "Milestone · ends " + esc(next.end) : "No milestone", "flag")}</div>
+        <div class="bar fd-bar"><span style="width:${projProgress(f)}%"></span></div>`;
     }
-    return header("Inbox", { lead: ic("inbox", 16, "var(--text-secondary)"), actions: `<button class="btn sm ghost" data-a="readall">${ic("check-check", 13)}Mark all read</button>` }) +
-      `<div class="split"><div class="list-pane"><div class="scroll">${list}</div></div><div class="detail">${detail}</div></div>`;
+    const subRows = sub.map(k => { const p = deepItems(k.id, famTypes("plan")).length, c = deepItems(k.id, famTypes("content")).length;
+      return `<div class="coll-row c-item" data-a="openfolder:${k.id}" data-drag="folder:${k.id}" data-drop="${k.id}" draggable="true">
+        <span class="coll-name">${folderIcon(k)}<span>${esc(k.name)}</span>${kbState(k).on ? ic("library-big", 12, "var(--text-tertiary)") : ""}</span>
+        <span class="mono" style="color:var(--text-tertiary)">${p} plan</span><span class="mono" style="color:var(--text-tertiary)">${c} content</span>
+        <button class="ib sm" data-a="fmenu:${k.id}" title="More">${ic("ellipsis", 14)}</button></div>`; }).join("");
+    // tabs: Plan (default) · Content · Folders — one area at a time
+    const tab = ["plan", "content", "folders"].includes(S.ftab) ? S.ftab : "plan";
+    const tabBtn = (k, label, n) => `<button class="tab${tab === k ? " active" : ""}" data-a="ftab:${k}" role="tab" aria-selected="${tab === k}">${label}<span class="mono">${n}</span></button>`;
+    const empty = (icon, hint) => `<div class="box ibx-empty fd-empty">${ic(icon, 16, "var(--text-tertiary)")}${hint}</div>`;
+    const panel = tab === "folders" ? (sub.length ? `<div class="coll-table fd-area">${subRows}</div>` : empty("folder-plus", "No subfolders yet."))
+      : tab === "content" ? (cont.length ? `<div class="coll-table fd-area">${itemGroups(cont)}</div>` : empty("notebook-pen", "No notes, canvases, stickies, decks or files in this folder yet."))
+      : (plan.length ? `<div class="coll-table fd-area">${itemGroups(plan)}</div>` : empty("calendar-check", "No ToDos or goals in this folder yet."));
+    const add = tab === "folders" ? `<button class="btn sm" data-a="newfolder:${id}">${ic("folder-plus", 13)}New folder</button>` : `<button class="btn sm" data-a="qcfam:${tab}|${id}">${ic("plus", 13)}Add</button>`;
+    return header(crumb, { lead: folderIcon(f), actions: `<button class="ib" data-a="fsettings:${id}" title="Folder settings">${ic("settings-2")}</button><button class="ib" data-a="fmenu:${id}" title="More">${ic("ellipsis")}</button>` }) +
+      `<div class="scroll"><div class="coll">
+        <div class="coll-head"><span class="coll-icon">${folderIcon(f, 24)}</span><h1>${esc(f.name)}</h1>${badges}<span class="spacer"></span>
+          <button class="btn" data-a="fsettings:${id}">${ic("settings-2", 14)}Settings</button>
+          <button class="btn primary" data-a="qc:${id}">${ic("plus", 14)}New</button></div>
+        <p class="coll-desc">${f.desc ? esc(f.desc) + " · " : ""}${sub.length} ${sub.length === 1 ? "subfolder" : "subfolders"} · ${plan.length + cont.length} ${plan.length + cont.length === 1 ? "element" : "elements"} here · ${deepItems(id).length} in total</p>
+        ${proj}
+        <div class="fd-tabbar" role="tablist">${tabBtn("plan", "Plan", plan.length)}${tabBtn("content", "Content", cont.length)}${tabBtn("folders", "Folders", sub.length)}<span class="spacer"></span>${add}</div>
+        ${panel}
+      </div></div>`;
   }
-  function chipsFor(i) {
-    const st = status(i.status), pr = prio(i.prio), p = project(i.project);
-    return `<span class="chip" data-a="status:${i.id}">${ic(st.icon, 13, st.color)}${st.name}</span>
-      <span class="chip" data-a="prio:${i.id}">${ic(pr.icon, 13, pr.color)}${pr.name}</span>
-      <span class="chip" data-a="assignee:${i.id}">${av(i.who, 14)}${esc(i.who)}</span>
-      <span class="chip" data-a="label:${i.id}"><span class="dot" style="background:${D.labels[i.label]}"></span>${esc(i.label)}</span>
-      <span class="chip${i.due ? "" : " is-empty"}">${ic("calendar", 13)}${i.due || "Due date"}</span>
-      <span class="chip" data-a="go:work/project/${p.id}">${p.emoji} ${esc(p.name)}</span>`;
-  }
-  function viewIssue(id) {
-    const i = issue(id);
-    if (!i) return header("Not found") + emptyState("circle-help", "Work item not found", "It may have been deleted.");
-    const p = project(i.project), subs = D.issues.filter(x => x.parent === i.id);
-    return header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:work/project/${p.id}">${p.emoji} ${esc(p.name)}</span> <span class="crumb-sep">›</span> ${i.id}`, {
-      actions: `<button class="ib" data-a="toast:Link copied" title="Copy link">${ic("link")}</button><button class="ib" data-a="issuemenu:${i.id}" title="More">${ic("ellipsis")}</button>` }) +
-      `<div class="scroll"><div class="doc">
-        <h1 class="editable" contenteditable="true" data-edit="issue-title:${i.id}" data-ph="Issue title">${esc(i.title)}</h1>
-        <div class="props">${chipsFor(i)}</div>
-        <p class="editable" contenteditable="true" data-edit="issue-desc:${i.id}" data-ph="Add a description…">${esc(i.desc || "")}</p>
-        ${subs.length ? `<h2>Sub-items</h2><div class="box">${subs.map(issueRow).join("")}</div>` : ""}
-        <div class="activity"><div class="label-mono" style="margin-bottom:6px">Activity</div>
-          <div class="act-row">${av(i.who, 16)}<b>${esc(i.who)}</b> created the work item · 3d</div>
-          <div class="act-row">${ic(status(i.status).icon, 14, status(i.status).color)}<b>${esc(D.me)}</b> set status to ${status(i.status).name} · 1d</div>
-        </div></div></div>`;
-  }
-  function viewProject(id) {
-    const p = project(id);
-    if (!p) return header("Not found");
-    const tabs = [["overview", "Overview"], ["items", "Work items"], ["cycles", "Cycles"], ["modules", "Modules"]].map(([k, l]) => `<button class="tab${S.tab === k ? " active" : ""}" data-a="tab:${k}">${l}</button>`).join("");
-    let items = D.issues.filter(i => i.project === id);
-    if (S.filterMine) items = items.filter(i => i.who === D.me);
-    let body;
-    if (S.tab === "items") body = listToolbar("Work items", items) + `<div class="scroll">${issueList(items)}</div>`;
-    else if (S.tab === "overview") {
-      const all = D.issues.filter(i => i.project === id);
-      body = `<div class="scroll"><div class="doc"><div style="font-size:32px">${p.emoji}</div><h1>${esc(p.name)}</h1><p>One clear outcome, tracked through work items, cycles and modules.</p>
-        <div class="props"><span class="chip">${av(p.lead, 14)}${esc(p.lead)}</span><span class="chip">${ic("target", 13)}Target ${p.target}</span><span class="chip">${ic("hash", 13)}${p.key}</span></div>
-        <h2>Progress</h2><div style="display:flex;align-items:center;gap:12px"><div class="bar" style="flex:1"><span style="width:${p.progress}%"></span></div><span class="mono">${p.progress}%</span></div>
-        <h2>Breakdown</h2><div class="box">${D.statuses.map(s => `<div class="box-row">${ic(s.icon, 14, s.color)}<span class="l">${s.name}</span><span class="mono">${all.filter(i => i.status === s.id).length}</span></div>`).join("")}</div></div></div>`;
-    } else body = emptyState(S.tab === "cycles" ? "refresh-cw" : "boxes", S.tab === "cycles" ? "No cycles yet" : "No modules yet",
-      S.tab === "cycles" ? "Cycles are time-boxed periods of work. Plan two weeks at a time and let unfinished items roll over." : "Modules group related work items into smaller deliverables inside a project.",
-      `<button class="btn primary" data-a="toast:${S.tab === "cycles" ? "Cycle" : "Module"} created">Create ${S.tab === "cycles" ? "cycle" : "module"}</button>`);
-    return header(esc(p.name), { lead: `<span style="font-size:16px">${p.emoji}</span>`, mid: `<div class="tabs">${tabs}</div>`, actions: `<button class="ib" data-a="toast:Link copied" title="Copy link">${ic("link")}</button>` }) + body;
-  }
-  function viewMine() {
-    const items = D.issues.filter(i => i.who === D.me);
-    return header("My issues", { lead: ic("scan-eye", 16, "var(--text-secondary)") }) + listToolbar("Assigned to you", items) + `<div class="scroll">${issueList(items)}</div>`;
-  }
-  function viewProjects() {
-    return header("Projects", { lead: ic("box", 16, "var(--text-secondary)"), count: D.projects.length, actions: `<button class="btn sm primary" data-a="newproject">${ic("plus", 13)}New project</button>` }) +
-      `<div class="scroll"><div class="prow head"><span>Name</span><span>Lead</span><span>Progress</span><span>Target</span></div>${D.projects.map(p => `<div class="prow" data-a="go:work/project/${p.id}"><span>${p.emoji}&nbsp; ${esc(p.name)}</span><span style="display:flex;gap:6px;align-items:center;color:var(--text-secondary)">${av(p.lead, 18)}${esc(p.lead)}</span><span class="bar"><span style="width:${p.progress}%"></span></span><span class="mono" style="color:var(--text-tertiary)">${p.target}</span></div>`).join("")}</div>`;
+  // Inbox: a personal overview laid out as a dense, mostly monochrome bento grid — no collaboration yet
+  const IB_ICONS = { reminder: "bell", study: "gallery-vertical-end", milestone: "flag", time: "timer", done: "circle-check", system: "sparkles" };
+  const ibToday = m => /[mh]$/.test(m.time);
+  const dueLabel = dd => dd < 0 ? `${-dd}d overdue` : dd === 0 ? "Today" : dd === 1 ? "Tomorrow" : `In ${dd}d`;
+  const ring = (pct, size = 104) => {
+    const r = size / 2 - 6, c = 2 * Math.PI * r;
+    return `<svg class="ibx-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="trk"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="val" stroke-dasharray="${c * pct / 100} ${c}"/></svg>`;
+  };
+  function viewInbox() {
+    const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const open = D.inbox.filter(m => !m.done), cleared = D.inbox.length - open.length, unread = unreadCount();
+    const mono = s => `<span class="mono ibx-m">${s}</span>`;
+    // dated ToDos land in the due buckets; clicking one ticks it off
+    const dated = D.todos.filter(t => !t.done && t.due).map(t => ({ dd: dayDiff(t.due), due: t.due, title: t.text, a: "todo:" + t.id, lead: '<span class="ibx-ck"></span>', id: esc((folderName(t.folder) || "ToDo").slice(0, 16)), pr: prio(t.prio) }))
+      .sort((a, b) => a.dd - b.dd);
+    const over = dated.filter(x => x.dd < 0), today = dated.filter(x => x.dd === 0), week = dated.filter(x => x.dd > 0 && x.dd <= 7);
+    const line = x => `<div class="it" data-a="${x.a}">${x.lead}${mono(x.id)}<span class="t">${esc(x.title)}</span>${x.pr && x.pr.id ? `<span class="ibx-m" title="${x.pr.name}">${ic(x.pr.icon, 13, "var(--text-tertiary)")}</span>` : ""}${mono(x.due)}</div>`;
+    const card = (lbl, list, cls = "") => `<div class="card ibx-due ${cls}"><div class="label-mono">${lbl}<span class="n">${list.length}</span></div>${list.length ? list.map(line).join("") : '<div class="none">Nothing here</div>'}</div>`;
+
+    // bento data
+    const readPct = D.inbox.length ? Math.round((D.inbox.length - unread) / D.inbox.length * 100) : 100;
+    const mineT = D.timeEntries;
+    const myHours = [0, 1, 2, 3, 4, 5, 6].map(d => mineT.reduce((s, e) => s + e.hours[d], 0));
+    const maxH = Math.max(4, ...myHours), totalH = myHours.reduce((a, b) => a + b, 0);
+    const byTodo = mineT.map(e => ({ id: e.todo, h: e.hours.reduce((a, b) => a + b, 0) })).filter(x => x.h && todo(x.id)).sort((a, b) => b.h - a.h);
+    const days = Array.from({ length: 14 }, (_, d) => { const dt = new Date(TODAY); dt.setDate(dt.getDate() + d); return { d, n: dated.filter(x => x.dd === d).length, wd: "MTWTFSS"[(TODAY_IDX + d) % 7], date: dt.getDate() }; });
+    const tDone = D.todos.filter(t => t.done).length, tLate = over.length, tOpen = D.todos.length - tDone - tLate;
+    const stCount = [{ cls: "st-progress", name: "Overdue", n: tLate }, { cls: "st-todo", name: "Open", n: tOpen }, { cls: "st-backlog", name: "Done", n: tDone }];
+    const cards = D.decks.flatMap(d => d.cards), known = cards.filter(c => c.known).length, studyMin = D.studyMinutes.reduce((a, b) => a + b, 0);
+    const kv = (k, v) => `<div class="ibx-kv"><span>${k}</span>${mono(v)}</div>`;
+    const tileHead = (k, right) => `<div class="ibx-tile-top"><span class="label-mono">${k}</span>${right}</div>`;
+    const listTile = (cls, k, icon, list, empty) => `<div class="ibx-tile ${cls}">${tileHead(k, ic(icon, 14, "var(--text-tertiary)"))}<div class="ibx-big">${list.length}</div><div class="ibx-mini">${list.length ? list.slice(0, 3).map(x => `<div data-a="${x.a}"><span class="t">${esc(x.title)}</span>${mono(dueLabel(x.dd))}</div>`).join("") : `<div class="none">${empty}</div>`}</div></div>`;
+
+    const bento = `<div class="ibx-bento">
+      <div class="ibx-tile ibx-ring-tile">${tileHead("Inbox", `<span class="ibx-link" data-a="readall">Read all</span>`)}
+        <div class="ibx-ring-wrap">${ring(readPct)}<span class="ibx-ring-v">${readPct}%<small>read</small></span></div>
+        ${kv("Unread", unread)}${kv("Read", open.length - unread)}${kv("Cleared", cleared)}${kv("Total", D.inbox.length)}</div>
+      ${listTile("t-over" + (over.length ? " hot" : ""), "Overdue", "circle-alert", over, "Nothing late")}
+      ${listTile("", "Due today", "calendar-check", today, "Free day")}
+      <div class="ibx-tile ibx-hours" data-a="go:plan/time">${tileHead("Focus this week", ic("timer", 14, "var(--text-tertiary)"))}
+        <div class="ibx-big">${totalH}h<small> / ${(totalH / Math.max(1, TODAY_IDX + 1)).toFixed(1)}h per day</small></div>
+        <div class="ibx-bars">${myHours.map((h, d) => `<div class="b${d === TODAY_IDX ? " now" : ""}"><em>${h ? h : ""}</em><span class="${h ? "" : "zero"}" style="height:${Math.max(6, h / maxH * 100)}%"></span><b>${"MTWTFSS"[d]}</b></div>`).join("")}</div>
+        <div class="ibx-mini">${byTodo.map(x => { const t = todo(x.id); return `<div data-a="go:plan/time"><span class="t">${t ? esc(t.text) : "Deleted ToDo"}</span>${mono(x.h + "h")}</div>`; }).join("") || '<div class="none">No time logged</div>'}</div></div>
+      <div class="ibx-tile ibx-dots-tile">${tileHead("Next 14 days", `<span class="label-mono">${dated.filter(x => x.dd >= 0 && x.dd < 14).length} due · ${over.length} late</span>`)}
+        <div class="ibx-dots">${days.map(x => `<div class="col${x.d === 0 ? " now" : ""}" title="${x.n} due ${x.d === 0 ? "today" : "in " + x.d + "d"}"><em>${x.n || ""}</em>${[3, 2, 1, 0].map(k => `<i class="${k < x.n ? "on" : ""}"></i>`).join("")}<b>${x.wd}</b><b class="dt">${x.date}</b></div>`).join("")}</div></div>
+      <div class="ibx-tile">${tileHead("ToDos", `<span class="ibx-link" data-a="go:pin/todos">Open</span>`)}
+        <div class="ibx-big">${D.todos.length - tDone}<small> open of ${D.todos.length}</small></div>
+        <div class="ibx-stack">${stCount.map(s => s.n ? `<span class="${s.cls}" style="flex:${s.n}" title="${s.name}: ${s.n}"></span>` : "").join("")}</div>
+        ${stCount.map(s => kv(s.name, s.n)).join("")}</div>
+      <div class="ibx-tile ibx-proj">${tileHead("Projects", `<span class="ibx-link" data-a="go:plan/timelines">Timeline</span>`)}
+        ${projects().map(p => { const pct = projProgress(p); return `<div class="ibx-prow" data-a="openfolder:${p.id}"><span class="t">${esc(p.name)}</span>${mono(deepItems(p.id, ["todo"]).filter(i => !i.x.done).length + " open")}${mono(esc(p.project.target || "–"))}<span class="bar"><span style="width:${pct}%"></span></span>${mono(pct + "%")}</div>`; }).join("") || '<div class="ibx-kv"><span>No project folders yet</span></div>'}</div>
+      <div class="ibx-tile" data-a="go:wiki/flashcards">${tileHead("Learning", ic("gallery-vertical-end", 14, "var(--text-tertiary)"))}
+        <div class="ibx-big">${Math.round(known / cards.length * 100)}%<small> mastered</small></div>
+        ${kv("Cards known", known + " / " + cards.length)}${kv("Studied this week", studyMin + " min")}${kv("Decks", D.decks.length)}${kv("Last session", D.decks.map(d => d.last).sort()[0] + " ago")}</div>
+    </div>`;
+
+    const KIND = { reminder: "Reminder", study: "Study", milestone: "Milestone", time: "Time", done: "Done", system: "System" };
+    const row = m => {
+      const t = m.todo && todo(m.todo), fo = t && folder(t.folder);
+      const title = t ? esc(t.text) : esc(m.title || "Deleted ToDo");
+      return `<div class="ibx-row${m.unread ? " unread" : ""}" data-a="ib-open:${m.id}"><span class="ibx-ico">${ic(IB_ICONS[m.kind] || "bell", 15)}</span>
+        <span class="ibx-txt"><span class="ibx-t">${title}</span><span class="ibx-s">${esc(m.body)}</span></span>
+        <span class="ibx-col">${fo ? esc(fo.name) : ""}</span><span class="ibx-col label-mono">${KIND[m.kind] || ""}</span>
+        <span class="ibx-time">${m.time}</span>${m.unread ? '<span class="unread-dot"></span>' : '<span class="dot-gap"></span>'}
+        <span class="ibx-tools"><button class="ib sm" data-a="ib-read:${m.id}" title="${m.unread ? "Mark read" : "Mark unread"}">${ic(m.unread ? "mail-open" : "mail", 14)}</button><button class="ib sm" data-a="ib-done:${m.id}" title="Clear">${ic("check", 14)}</button></span></div>`;
+    };
+    const group = (lbl, list) => list.length ? `<div class="ibx-group label-mono">${lbl}<span>${list.length}</span></div>${list.map(row).join("")}` : "";
+    const notes = open.length ? `<div class="box ibx-list">${group("Today", open.filter(ibToday))}${group("Earlier", open.filter(m => !ibToday(m)))}</div>`
+      : `<div class="box ibx-list ibx-empty">${ic("sparkles", 16, "var(--text-tertiary)")}You're all caught up.</div>`;
+
+    const todos = D.todos.filter(t => !t.done && !t.due);
+    const todoCard = `<div class="card"><div class="label-mono ibx-head">ToDos<span class="n">${D.todos.filter(t => t.done).length}/${D.todos.length} done</span><span class="ibx-link" data-a="go:pin/todos">All</span></div>${todos.length ? todos.map(t => `<div class="it" data-a="todo:${t.id}" title="Mark done"><span class="ibx-ck"></span><span class="t">${esc(t.text)}</span>${mono("No date")}</div>`).join("") : '<div class="none">Nothing without a date</div>'}</div>`;
+    // dates carry no year, so an end far in the past (e.g. January) means next year
+    const ms = projects().flatMap(p => (p.project.milestones || []).map(m => ({ m, p, dd: (d => d < -180 ? d + 365 : d)(dayDiff(m.end)) }))).filter(x => x.dd >= 0).sort((a, b) => a.dd - b.dd);
+    const msCard = `<div class="card"><div class="label-mono ibx-head">Milestones<span class="ibx-link" data-a="go:plan/timelines">Timeline</span></div>${ms.map(({ m, p, dd }) => `<div class="it" data-a="openfolder:${p.id}"><span class="t">${esc(m.name)} <span style="color:var(--text-tertiary)">· ${esc(p.name)}</span></span>${mono(m.start + " – " + m.end)}${mono(dueLabel(dd))}</div>`).join("") || '<div class="none">No upcoming milestones</div>'}</div>`;
+
+    const h2 = (t, extra = "") => `<div class="due-head"><h2 class="ibx-h2">${t}</h2>${extra}</div>`;
+    return header("Inbox", { lead: ic("inbox", 16, "var(--text-secondary)"), actions: `<button class="btn sm ghost" data-a="readall">${ic("check-check", 13)}Mark all read</button>` }) + `<div class="scroll"><div class="home ibx">
+      <span class="ibx-pill">${ic("sparkles", 13)}${unread ? `${unread} unread` : "All caught up"} · ${over.length} overdue · ${today.length} due today</span>
+      <h1 class="ibx-title">${greet}, ${esc(D.me.split(" ")[0])}.<br><span>Here's what's next.</span></h1>
+      ${bento}
+      ${h2("Due", `<span class="label-mono">${over.length + today.length + week.length} open</span>`)}
+      <div class="cols">${card("Overdue", over, "late")}${card("Today", today)}${card("This week", week)}</div>
+      ${h2("Notifications", `<span class="label-mono">${open.length}</span>${cleared ? `<span class="ibx-link" data-a="ib-restore">Restore ${cleared} cleared</span>` : ""}`)}
+      ${notes}
+      ${h2("Up next")}
+      <div class="cols ibx-two">${todoCard}${msCard}</div>
+    </div></div>`;
   }
   /* ---------- Work: notes, canvas, stickies ---------- */
   const STICKY_COLORS = { amber: ["var(--warning-soft)", "var(--warning)"], green: ["var(--success-soft)", "var(--success)"], blue: ["var(--info-soft)", "var(--info)"], violet: ["var(--violet-900)", "var(--violet-500)"], red: ["var(--danger-soft)", "var(--danger)"] };
@@ -343,13 +430,13 @@
       const labels = n => (n.labels || []).length
         ? n.labels.map(l => `<span class="dot" style="background:${D.labels[l]}"></span>${esc(l)}`).join('<span style="color:var(--text-tertiary)">,</span> ')
         : `${ic("tag", 13)}Select labels`;
-      const rows = list.map(n => `<div class="coll-row" data-a="go:work/notes/${n.id}">
-          <span class="coll-name">${ic("file-text", 16, "var(--text-secondary)")}<span>${esc(n.title || "Untitled")}</span></span>
-          <span>${(f => `<span class="chip${f ? "" : " is-empty"}" data-a="note-folder:${n.id}">${ic(f ? "folder" : "folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`)(noteFolder(n))}</span>
+      const rows = list.map(n => `<div class="coll-row" data-a="go:work/notes/${n.id}" data-drag="note:${n.id}" draggable="true">
+          <span class="coll-name">${ic("file-text", 16, "var(--text-secondary)")}<span>${esc(n.title || "Untitled")}</span>${n.starred ? ic("star", 12, "var(--warning)") : ""}</span>
+          <span>${folderChip("note", n)}</span>
           <span class="mono">${words(n)}</span>
           <span><span class="chip${(n.labels || []).length ? "" : " is-empty"}" data-a="note-labels:${n.id}">${labels(n)}</span></span>
           <span style="color:var(--text-secondary)">${ago(n.updated)}</span>
-          <button class="ib sm" data-a="note-menu:${n.id}" title="More">${ic("ellipsis", 14)}</button></div>`).join("");
+          <button class="ib sm" data-a="imenu:note|${n.id}" title="More">${ic("ellipsis", 14)}</button></div>`).join("");
       return header("Notes", { lead: ic("notebook-pen", 16, "var(--text-secondary)"), actions: `<button class="ib" data-a="palette" title="Search  ${MOD}+S">${ic("search")}</button><button class="ib" data-a="notes-more" title="More">${ic("ellipsis")}</button>` }) +
         `<div class="scroll"><div class="coll">
           <div class="coll-head"><span class="coll-icon">${ic("notebook-pen", 24)}</span><h1>Notes</h1><span class="chip" style="cursor:default">${ic("lock", 12)}Private</span><span class="spacer"></span>
@@ -361,7 +448,7 @@
         </div></div>`;
     }
     return header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:work/notes">Notes</span> <span class="crumb-sep">›</span> <span data-note-title="${note.id}">${esc(note.title || "Untitled")}</span>`, { lead: ic("notebook-pen", 16, "var(--text-secondary)"),
-      actions: `<button class="ib" data-a="note-del:${note.id}" title="Delete note">${ic("trash-2")}</button>${newBtn}` }) +
+      actions: `${folderChip("note", note)}<button class="ib" data-a="star:note|${note.id}" title="${note.starred ? "Unstar" : "Star"}">${ic("star", 16, note.starred ? "var(--warning)" : "")}</button><button class="ib" data-a="note-del:${note.id}" title="Move to trash">${ic("trash-2")}</button>${newBtn}` }) +
       `<div class="scroll"><div class="doc"><h1 class="editable" contenteditable="true" data-edit="note-title:${note.id}" data-ph="Untitled">${esc(note.title)}</h1><div class="label-mono" style="margin:6px 0 18px">Edited ${note.updated === "now" ? "just now" : note.updated + " ago"}</div>
         <p class="editable note-body" contenteditable="true" data-edit="note-body:${note.id}" data-ph="Start writing…">${esc(note.body)}</p></div></div>`;
   }
@@ -371,8 +458,8 @@
   const cvFind = id => { const b = boardOf(id); return b && b.items.find(c => c.id === id); };
   function viewCanvasOverview() {
     const count = (b, k) => b.items.filter(c => (c.kind || "card") === k).length;
-    const rows = D.canvases.map(b => `<div class="coll-row c5" data-a="go:work/canvas/${b.id}">
-        <span class="coll-name">${ic("layout-dashboard", 16, "var(--text-secondary)")}<span>${esc(b.name)}</span></span>
+    const rows = D.canvases.map(b => `<div class="coll-row c5" data-a="go:work/canvas/${b.id}" data-drag="canvas:${b.id}" draggable="true">
+        <span class="coll-name">${ic("layout-dashboard", 16, "var(--text-secondary)")}<span>${esc(b.name)}</span>${b.starred ? ic("star", 12, "var(--warning)") : ""}</span>
         <span class="mono">${count(b, "card")}</span><span class="mono">${count(b, "sticky")}</span>
         <span style="color:var(--text-secondary)">${b.updated === "now" ? "just now" : (b.updated || "–") + (b.updated ? " ago" : "")}</span>
         <button class="ib sm" data-a="canvas-menu:${b.id}" title="More">${ic("ellipsis", 14)}</button></div>`).join("");
@@ -389,18 +476,17 @@
     if (!id) return viewCanvasOverview();
     const board = D.canvases.find(b => b.id === id);
     if (!board) return header("Canvas") + emptyState("shapes", "Canvas not found", "It may have been deleted.", `<button class="btn" data-a="go:work/canvas">All canvases</button>`);
-    if (!board) return header("Canvas", { lead: ic("shapes", 16, "var(--text-secondary)") }) + emptyState("shapes", "No canvases yet", "A canvas is a free-form board for cards and stickies.", `<button class="btn primary" data-a="canvas-add">New canvas</button>`);
     const items = board.items.map(c => `<div class="cv-item${c.kind === "sticky" ? " sticky" : ""}" data-cv="${c.id}" style="left:${c.x}px;top:${c.y}px;width:${c.w}px${c.kind === "sticky" ? `;background:${STICKY_COLORS[c.color || "amber"][0]};border-color:${STICKY_COLORS[c.color || "amber"][1]}` : ""}">
         <div class="cv-grip" title="Drag to move">${ic("grip-horizontal", 14)}<span class="spacer"></span><button class="ib sm" data-a="cv-del:${c.id}" title="Remove">${ic("x", 12)}</button></div>
         <div class="cv-text editable" contenteditable="true" data-edit="canvas:${c.id}" data-ph="Type something…">${esc(c.text)}</div></div>`).join("");
     return header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:work/canvas">Canvas</span> <span class="crumb-sep">›</span> ${esc(board.name)}`, { lead: ic("shapes", 16, "var(--text-secondary)"), mid: `<span class="mono" style="color:var(--text-tertiary);margin-left:6px">Double-click to add a card · drag the handle to move</span>`,
-      actions: `<button class="btn sm" data-a="cv-add:sticky">${ic("sticky-note", 13)}Sticky</button><button class="btn sm primary" data-a="cv-add:card">${ic("square-plus", 13)}Card</button>` }) +
+      actions: `${folderChip("canvas", board)}<button class="ib" data-a="imenu:canvas|${board.id}" title="More">${ic("ellipsis")}</button><button class="btn sm" data-a="cv-add:sticky">${ic("sticky-note", 13)}Sticky</button><button class="btn sm primary" data-a="cv-add:card">${ic("square-plus", 13)}Card</button>` }) +
       `<div class="scroll canvas-wrap"><div class="canvas" id="canvas">${items}</div></div>`;
   }
   function viewStickies(selId) {
-    const cards = D.stickies.map(s => { const c = STICKY_COLORS[s.color], f = itemFolder("sticky", s.id); return `<div class="sticky-card${s.id === selId ? " sel" : ""}" data-sticky="${s.id}" style="background:${c[0]};border-color:${c[1]}">
+    const cards = D.stickies.map(s => { const c = STICKY_COLORS[s.color] || STICKY_COLORS.amber, f = folder(s.folder); return `<div class="sticky-card${s.id === selId ? " sel" : ""}" data-sticky="${s.id}" data-drag="sticky:${s.id}" style="background:${c[0]};border-color:${c[1]}">
         <div class="editable sticky-text" contenteditable="true" data-edit="sticky:${s.id}" data-ph="Write a sticky…">${esc(s.text)}</div>
-        <div class="sticky-foot"><span class="chip sticky-folder${f ? "" : " is-empty"}" data-a="sticky-folder:${s.id}" title="Move to folder">${ic(f ? "folder" : "folder-plus", 12)}${f ? esc(f.name) : "Folder"}</span><span class="spacer"></span><span class="mono" style="color:var(--text-tertiary);margin-right:4px">${s.updated}</span><button class="ib sm" data-a="sticky-color:${s.id}" title="Colour">${ic("palette", 13)}</button><button class="ib sm" data-a="sticky-del:${s.id}" title="Delete">${ic("trash-2", 13)}</button></div></div>`; }).join("");
+        <div class="sticky-foot"><span class="chip sticky-folder${f ? "" : " is-empty"}" data-a="move:sticky|${s.id}" title="Move to folder">${ic(f ? "folder" : "folder-plus", 12)}${f ? esc(f.name) : "Folder"}</span><span class="spacer"></span><span class="mono" style="color:var(--text-tertiary);margin-right:4px">${s.updated}</span><button class="ib sm" data-a="sticky-color:${s.id}" title="Colour">${ic("palette", 13)}</button><button class="ib sm" data-a="sticky-del:${s.id}" title="Delete">${ic("trash-2", 13)}</button></div></div>`; }).join("");
     return header("Stickies", { lead: ic("sticky-note", 16, "var(--text-secondary)"), count: D.stickies.length, actions: `<button class="btn sm primary" data-a="sticky-add">${ic("plus", 13)}Add sticky</button>` }) +
       (D.stickies.length ? `<div class="scroll"><div class="stickies">${cards}</div></div>` : emptyState("sticky-note", "No stickies", "Stickies are quick personal notes. Jot something down before it becomes a work item.", `<button class="btn primary" data-a="sticky-add">Add sticky</button>`));
   }
@@ -408,22 +494,15 @@
     switch (parts[1]) {
       case "notes": return viewNotes(parts[2]);
       case "canvas": return viewCanvas(parts[2]);
-      case "inbox": return viewInbox();
-      case "mine": return viewMine();
-      case "projects": return viewProjects();
-      case "project": return viewProject(parts[2]);
-      case "issue": return viewIssue(parts[2]);
-      case "views": return header("Views", { lead: ic("layers", 16, "var(--text-secondary)") }) + emptyState("layers", "Views", "Views are saved filters over work items. Save one from any list to share it with your team.", `<button class="btn primary" data-a="toast:View created">Create view</button>`);
-      case "drafts": return header("Drafts", { lead: ic("pencil-line", 16, "var(--text-secondary)") }) + emptyState("pencil-line", "No drafts", "Work items you start but do not create are kept here.", `<button class="btn" data-a="newissue">New work item ${kbd(["C"])}</button>`);
       case "stickies": return viewStickies(parts[2]);
-      default: return viewHome();
+      default: return viewNotes();
     }
   }
   /* ---------- Learn: flashcards, practice, AI tutor ---------- */
   function viewFlashcards(deckId) {
     const deck = deckId && D.decks.find(x => x.id === deckId);
     if (!deck) { // deck overview
-      const rows = D.decks.map(k => `<div class="coll-row c5" data-a="study:${k.id}">
+      const rows = D.decks.map(k => `<div class="coll-row c5" data-a="study:${k.id}" data-drag="deck:${k.id}" draggable="true">
           <span class="coll-name">${ic("gallery-vertical-end", 16, "var(--text-secondary)")}<span>${esc(k.name)}</span></span>
           <span class="mono">${k.cards.length}</span><span class="mono">${k.cards.filter(x => !x.known).length}</span>
           <span style="color:var(--text-secondary)">${k.last === "now" ? "just now" : k.last + " ago"}</span>
@@ -436,6 +515,7 @@
           <div class="coll-table"><div class="coll-row c5 head"><span>Deck</span><span>Cards</span><span>To learn</span><span>Last studied</span><span></span></div>${rows}</div>
         </div></div>`;
     }
+    if (S.study.deck !== deck.id) S.study = { deck: deck.id, i: 0, flipped: false, good: 0 }; // opened from a folder or the sidebar
     const st = S.study, card = deck.cards[st.i], done = st.i >= deck.cards.length;
     const crumb = `<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:wiki/flashcards">Flashcards</span> <span class="crumb-sep">›</span> ${esc(deck.name)}`;
     const bar = `<div class="study-bar"><span style="width:${Math.min(st.i, deck.cards.length) / deck.cards.length * 100}%"></span></div>`;
@@ -598,7 +678,7 @@
     if (parts[1] === "tutor") return parts[2] === "chat" ? viewTutor() : parts[2] === "summary" ? viewSummary() : viewTutorHome();
     if (parts[1] === "progress") return viewProgress();
     const p = D.pages.find(x => x.id === parts[1]) || D.pages[0];
-    return header(`<span style="color:var(--text-secondary);font-weight:500">Learn</span> <span class="crumb-sep">›</span> ${esc(p.title)}`, { actions: `<button class="ib" data-a="toast:Added to favorites" title="Favorite">${ic("star")}</button><button class="ib" data-a="toast:Link copied" title="Copy link">${ic("link")}</button>` }) +
+    return header(`<span style="color:var(--text-secondary);font-weight:500">Learn</span> <span class="crumb-sep">›</span> ${esc(p.title)}`, { actions: `${folderChip("page", p)}<button class="ib" data-a="star:page|${p.id}" title="${p.starred ? "Unstar" : "Star"}">${ic("star", 16, p.starred ? "var(--warning)" : "")}</button><button class="ib" data-a="imenu:page|${p.id}" title="More">${ic("ellipsis")}</button>` }) +
       `<div class="scroll"><div class="doc"><div style="margin-bottom:10px">${ic(p.icon, 28, "var(--text-tertiary)")}</div>
         <h1 class="editable" contenteditable="true" data-edit="page-title:${p.id}" data-ph="Untitled">${esc(p.title)}</h1>
         <div class="label-mono" style="margin:6px 0 18px">Edited by ${esc(D.me)} · 2h</div>
@@ -608,10 +688,10 @@
   function viewAI(parts) {
     const chat = D.chats.find(c => c.id === parts[1]);
     const log = chat ? chat.log : [];
-    const sug = ["Summarise this week", "What is overdue?", "Draft release notes", "Who is working on what?"];
+    const sug = ["Summarise this week", "What is overdue?", "Draft release notes", "What is open per folder?"];
     const inner = log.length ? log.map(m => `<div class="bubble ${m.me ? "me" : "ai"}">${m.me ? esc(m.text) : m.text}</div>`).join("")
       : `<div class="empty" style="padding-top:12vh">${ic("sparkles", 40)}<h3>Ask about your workspace</h3><p>AI reads your work items, projects and wiki pages. Answers stay inside ${esc(D.workspace.name)}.</p><div class="suggest">${sug.map(s => `<button class="chip" data-a="ask:${s}">${esc(s)}</button>`).join("")}</div></div>`;
-    return header(chat ? esc(chat.title) : "New chat", { lead: ic("sparkles", 16, "var(--text-secondary)") }) +
+    return header(chat ? esc(chat.title) : "New chat", { lead: ic("sparkles", 16, "var(--text-secondary)"), actions: chat ? `${folderChip("chat", chat)}<button class="ib" data-a="imenu:chat|${chat.id}" title="More">${ic("ellipsis")}</button>` : "" }) +
       `<div class="chat"><div class="log" id="chatlog"><div class="inner">${inner}</div></div>
       <div class="composer"><div class="box"><textarea id="prompt" rows="1" placeholder="Ask anything…"></textarea><button class="ib round" data-a="send" title="Send  ⏎" style="background:var(--accent);color:var(--on-accent)">${ic("arrow-up")}</button></div></div></div>`;
   }
@@ -624,23 +704,24 @@
   function viewPlan(parts) {
     const page = { roadmap: "timelines" }[parts[1]] || parts[1] || "timelines";
     if (page === "timelines") {
-      // six-month timeline starting September
+      // six-month timeline starting September: one row per project folder milestone
       const t0 = new Date(2026, 8, 1), t1 = new Date(2027, 2, 1), pct = d => Math.max(0, Math.min(100, (d - t0) / (t1 - t0) * 100));
       const months = [8, 9, 10, 11, 0, 1].map(m => `<span>${MONTHS[m]}</span>`).join("");
-      const rows = D.milestones.map(m => {
-        const p = project(m.project), a = pct(parseRange(m.start)), b = pct(parseRange(m.end));
-        return `<div class="tl-row" data-a="go:work/project/${p.id}"><span class="tl-name">${p.emoji}&nbsp; ${esc(p.name)}</span><span class="tl-track"><span class="tl-bar" style="left:${a}%;width:${b - a}%"><span class="tl-fill" style="width:${p.progress}%"></span><span class="tl-lbl">${esc(m.name)} · ${m.end}</span></span><span class="tl-today" style="left:${pct(TODAY)}%"></span></span></div>`;
-      }).join("");
+      const rows = projects().flatMap(f => (f.project.milestones || []).map(m => {
+        const a = pct(parseRange(m.start)), b = pct(parseRange(m.end));
+        return `<div class="tl-row" data-a="openfolder:${f.id}" data-drop="${f.id}"><span class="tl-name">${f.emoji ? f.emoji + "&nbsp; " : ""}${esc(f.name)}</span><span class="tl-track"><span class="tl-bar" style="left:${a}%;width:${b - a}%"><span class="tl-fill" style="width:${projProgress(f)}%"></span><span class="tl-lbl">${esc(m.name)} · ${m.end}</span></span><span class="tl-today" style="left:${pct(TODAY)}%"></span></span></div>`;
+      })).join("");
       return header("Timelines", { lead: ic("chart-gantt", 16, "var(--text-secondary)"), actions: `<button class="btn sm primary" data-a="newproject">${ic("plus", 13)}New project</button>` }) +
-        `<div class="scroll"><div class="tl"><div class="tl-row tl-head"><span class="tl-name label-mono">Project</span><span class="tl-track tl-months">${months}</span></div>${rows}</div></div>`;
+        (rows ? `<div class="scroll"><div class="tl"><div class="tl-row tl-head"><span class="tl-name label-mono">Project</span><span class="tl-track tl-months">${months}</span></div>${rows}</div></div>`
+          : emptyState("chart-gantt", "No project folders yet", "Turn on “Project” in a folder's settings to see it on the timeline.", `<button class="btn primary" data-a="newproject">New project</button>`));
     }
     if (page === "horizons") {
       const conf = { on: ["circle-check", "var(--success)", "On track"], risk: ["circle-alert", "var(--warning)", "At risk"], idea: ["circle-dashed", "var(--text-tertiary)", "Idea"] };
       const col = h => {
         const items = D.horizons.filter(x => x.h === h.id);
         return `<div class="hz-col"><div class="hz-head"><span class="label-mono">${h.label}</span><span class="mono" style="color:var(--text-tertiary)">${items.length}</span></div><div class="hz-sub">${h.sub}</div>
-          ${items.map(x => { const p = project(x.project), c = conf[x.conf]; return `<div class="hz-card" data-a="go:work/project/${p.id}"><div class="hz-t">${esc(x.title)}</div><div class="hz-meta"><span class="chip">${p.emoji} ${esc(p.name)}</span><span class="chip">${ic(c[0], 13, c[1])}${c[2]}</span>${av(x.owner, 18)}</div></div>`; }).join("")}
-          <button class="hz-add" data-a="toast:Goal added">${ic("plus", 14)}Add goal</button></div>`;
+          ${items.map(x => { const c = conf[x.conf] || conf.idea; return `<div class="hz-card" data-a="imenu:goal|${x.id}" data-drag="goal:${x.id}" draggable="true"><div class="hz-t">${esc(x.title)}</div><div class="hz-meta">${folderChip("goal", x)}<span class="chip">${ic(c[0], 13, c[1])}${c[2]}</span></div></div>`; }).join("")}
+          <button class="hz-add" data-a="toast:Goals get their own editor in a later phase">${ic("plus", 14)}Add goal</button></div>`;
       };
       return header("Horizons", { lead: ic("telescope", 16, "var(--text-secondary)") }) +
         `<div class="scroll"><div class="hz">${[{ id: "now", label: "Now", sub: "This quarter" }, { id: "next", label: "Next", sub: "Next quarter" }, { id: "later", label: "Later", sub: "6–12 months" }].map(col).join("")}</div></div>`;
@@ -648,50 +729,37 @@
     if (page === "time") {
       const t = S.timer, total = D.timeEntries.reduce((s, e) => s + e.hours.reduce((a, b) => a + b, 0), 0);
       const dayTotals = WEEKDAYS.map((_, d) => D.timeEntries.reduce((s, e) => s + e.hours[d], 0));
-      const head = `<div class="ts-row ts-head"><span>Work item</span>${WEEKDAYS.map((w, d) => `<span class="${d === TODAY_IDX ? "today" : ""}">${w}</span>`).join("")}<span>Total</span></div>`;
-      const rows = D.timeEntries.map(e => { const i = issue(e.issue); return `<div class="ts-row"><span class="ts-name" data-a="go:work/issue/${e.issue}"><span class="mono" style="color:var(--text-tertiary)">${e.issue}</span>${esc(i ? i.title : "")}</span>${e.hours.map((h, d) => `<span class="ts-h${d === TODAY_IDX ? " today" : ""}${h ? "" : " zero"}">${h ? fmtH(h) : "–"}</span>`).join("")}<span class="ts-h total">${fmtH(e.hours.reduce((a, b) => a + b, 0))}</span></div>`; }).join("");
+      const head = `<div class="ts-row ts-head"><span>ToDo</span>${WEEKDAYS.map((w, d) => `<span class="${d === TODAY_IDX ? "today" : ""}">${w}</span>`).join("")}<span>Total</span></div>`;
+      const rows = D.timeEntries.map(e => { const x = todo(e.todo); return `<div class="ts-row"><span class="ts-name" data-a="go:pin/todos"><span class="mono" style="color:var(--text-tertiary)">${esc((x && folderName(x.folder) || "–").slice(0, 14))}</span>${esc(x ? x.text : "Deleted ToDo")}</span>${e.hours.map((h, d) => `<span class="ts-h${d === TODAY_IDX ? " today" : ""}${h ? "" : " zero"}">${h ? fmtH(h) : "–"}</span>`).join("")}<span class="ts-h total">${fmtH(e.hours.reduce((a, b) => a + b, 0))}</span></div>`; }).join("");
       const foot = `<div class="ts-row ts-foot"><span>Total</span>${dayTotals.map((h, d) => `<span class="ts-h${d === TODAY_IDX ? " today" : ""}">${h ? fmtH(h) : "–"}</span>`).join("")}<span class="ts-h total">${fmtH(total)}</span></div>`;
       const timerBtn = t.running
         ? `<button class="btn sm" data-a="timer">${ic("square", 12, "var(--danger)")}Stop <span class="mono" id="timer-clock">${fmtClock(Date.now() - t.start)}</span></button>`
         : `<button class="btn sm primary" data-a="timer">${ic("play", 12)}Start timer</button>`;
+      const cur = todo(t.todo);
       return header("Time tracking", { lead: ic("timer", 16, "var(--text-secondary)"), mid: `<span class="mono" style="color:var(--text-tertiary);margin-left:6px">Week of 12 Oct · ${fmtH(total)}h logged</span>`,
-        actions: `<button class="chip" data-a="timer-issue">${ic("copy", 13)}${t.issue}</button>${timerBtn}` }) +
+        actions: `<button class="chip" data-a="timer-todo">${ic("circle", 13)}${esc(cur ? cur.text.slice(0, 28) : "Pick a ToDo")}</button>${timerBtn}` }) +
         `<div class="scroll"><div class="ts">${head}${rows}${foot}</div></div>`;
     }
     if (page === "analytics") {
       // single-series bars (one hue = magnitude); values as direct labels in text ink, tooltip per bar
-      const open = D.issues.filter(i => i.status !== "done");
-      const hours = Object.keys(D.people).map(n => ({ name: n, v: D.timeEntries.filter(e => e.who === n).reduce((s, e) => s + e.hours.reduce((a, b) => a + b, 0), 0) }));
+      const open = D.todos.filter(t => !t.done), tops = kids(null);
+      const hoursIn = f => { const ids = new Set(subtreeIds(f.id)); return D.timeEntries.filter(e => { const x = todo(e.todo); return x && ids.has(x.folder); }).reduce((s, e) => s + e.hours.reduce((a, b) => a + b, 0), 0); };
       const bars = (rows, unit) => { const max = Math.max(1, ...rows.map(r => r.v)); return `<div class="an-bars">${rows.map(r => `<div class="an-row" title="${esc(r.name)}: ${fmtH(r.v)}${unit}"><span class="an-lbl">${r.lead || ""}${esc(r.name)}</span><span class="an-track"><span class="an-bar" style="width:${r.v / max * 100}%"></span></span><span class="an-v">${fmtH(r.v)}${unit}</span></div>`).join("")}</div>`; };
-      const stat = (v, k, icon) => `<div class="stat"><div style="display:flex;justify-content:space-between;align-items:center"><span class="v">${v}</span>${ic(icon, 16, "var(--text-tertiary)")}</div><div class="k">${k}</div></div>`;
-      const totalH = hours.reduce((s, h) => s + h.v, 0);
+      const totalH = D.timeEntries.reduce((s, e) => s + e.hours.reduce((a, b) => a + b, 0), 0);
       return header("Analytics", { lead: ic("chart-column", 16, "var(--text-secondary)") }) + `<div class="scroll"><div class="home">
-        <div class="stats">${stat(open.length, "Open work items", "circle")}${stat(D.issues.filter(i => i.status === "done").length, "Completed", "circle-check")}${stat(fmtH(totalH) + "h", "Logged this week", "timer")}${stat(D.issues.filter(i => i.prio === 1 && i.status !== "done").length, "Urgent and open", "circle-alert")}</div>
+        <div class="stats">${stat(open.length, "Open ToDos", "circle")}${stat(D.todos.length - open.length, "Completed", "circle-check")}${stat(fmtH(totalH) + "h", "Logged this week", "timer")}${stat(open.filter(t => t.prio === 1).length, "Urgent and open", "circle-alert")}</div>
         <div class="an-grid">
-          <div class="card"><div class="an-title">Work items by status</div>${bars(D.statuses.map(s => ({ name: s.name, lead: ic(s.icon, 13, s.color), v: D.issues.filter(i => i.status === s.id).length })), "")}</div>
-          <div class="card"><div class="an-title">Open work items by project</div>${bars(D.projects.map(p => ({ name: p.name, lead: `<span style="width:14px;text-align:center">${p.emoji}</span>`, v: open.filter(i => i.project === p.id).length })), "")}</div>
-          <div class="card"><div class="an-title">Hours logged this week</div>${bars(hours.map(h => ({ name: h.name, lead: av(h.name, 16), v: h.v })), "h")}</div>
+          <div class="card"><div class="an-title">Open ToDos by folder</div>${bars(tops.map(f => ({ name: f.name, lead: folderIcon(f, 13), v: deepItems(f.id, ["todo"]).filter(i => !i.x.done).length })), "")}</div>
+          <div class="card"><div class="an-title">Open ToDos by priority</div>${bars(D.priorities.slice(1).concat(D.priorities[0]).map(p => ({ name: p.name, lead: ic(p.icon, 13, p.color), v: open.filter(t => (t.prio || 0) === p.id).length })), "")}</div>
+          <div class="card"><div class="an-title">Hours logged this week</div>${bars(tops.map(f => ({ name: f.name, lead: folderIcon(f, 13), v: hoursIn(f) })), "h")}</div>
         </div></div></div>`;
     }
-    if (page === "item") { // a folder element: its kind's page, titled "Folder › Item"
-      const f = D.planFolders.find(x => x.id === parts[2]), it = f && f.items[+parts[3]];
-      if (!it) return header("Not found") + emptyState("folder", "Item not found", "It may have been moved or deleted.");
-      const title = `<span class="title"><span style="color:var(--text-secondary);font-weight:500">${esc(f.name)}</span> <span class="crumb-sep">›</span> ${esc(it.name)}</span>`;
-      return viewPlan(["plan", PLAN_KINDS[it.kind][1].split("/")[1]]).replace(/<span class="title">[^<]*<\/span>/, title);
-    }
-    if (page === "folder") {
-      const f = D.planFolders.find(x => x.id === parts[2]);
-      if (!f) return header("Folder") + emptyState("folder", "Folder not found", "It may have been deleted.");
-      return header(esc(f.name), { lead: ic("folder", 16, "var(--text-secondary)"), count: f.items.length, actions: `<button class="btn sm" data-a="toast:Plan added">${ic("plus", 13)}Add plan</button>` }) +
-        (f.items.length ? `<div class="scroll">${f.items.map((it, n) => `<div class="prow" style="grid-template-columns:1fr 120px" data-a="go:plan/item/${f.id}/${n}"><span style="display:flex;align-items:center;gap:10px">${ic(PLAN_KINDS[it.kind][0], 16, "var(--text-secondary)")}${esc(it.name)}</span><span class="mono" style="color:var(--text-tertiary);text-transform:capitalize">${it.kind}</span></div>`).join("")}</div>`
-          : emptyState("folder-open", "Empty folder", "Group timelines, horizons and reports that belong together."));
-    }
     if (page === "calendar") {
-      // October 2026, weeks start on Monday
+      // October 2026, weeks start on Monday; dated ToDos show on their day
       const offset = (new Date(2026, 9, 1).getDay() + 6) % 7, cells = [];
       for (let n = 0; n < 35; n++) {
         const d = new Date(2026, 9, n - offset + 1), key = String(d.getDate()).padStart(2, "0") + " " + MONTHS[d.getMonth()];
-        const due = D.issues.filter(i => i.due === key).map(i => `<span class="cal-it" data-a="go:work/issue/${i.id}" style="border-left-color:${status(i.status).color}">${esc(i.title)}</span>`).join("");
+        const due = D.todos.filter(t => t.due === key).map(t => `<span class="cal-it" data-a="go:pin/todos" data-drag="todo:${t.id}" style="border-left-color:${t.done ? "var(--success)" : dayDiff(t.due) < 0 ? "var(--danger)" : "var(--text-tertiary)"}${t.done ? ";color:var(--text-tertiary)" : ""}">${esc(t.text)}</span>`).join("");
         cells.push(`<div class="cal-cell${d.getMonth() === 9 ? "" : " out"}${+d === +TODAY ? " today" : ""}"><span class="cal-d">${d.getDate()}</span>${due}</div>`);
       }
       return header("Calendar", { lead: ic("calendar", 16, "var(--text-secondary)"), mid: `<span class="mono" style="color:var(--text-tertiary);margin-left:6px">October 2026</span>` }) +
@@ -700,47 +768,61 @@
     return viewPlan(["plan", "timelines"]);
   }
   function viewFiles(parts) {
-    if (parts[1] === "file") { // single file: preview placeholder + details
-      const f = D.files[+parts[2]];
+    if (parts[1] === "file") { // single file: preview placeholder + details (also for a file in the trash)
+      const id = parts[2], live = find("file", id), tr = !live && D.trash.find(e => e.type === "file" && e.item.id === id), f = live || (tr && tr.item);
       if (!f) return header("Not found") + emptyState("file", "File not found", "It may have been moved or deleted.");
-      const fo = D.folders.find(x => x.id === f.folder);
+      const path = fpath(f.folder);
       const row = (k, v) => `<div class="box-row"><div class="l"><span>${k}</span></div><span style="color:var(--text-secondary)">${v}</span></div>`;
-      return header(`${fo ? `<span style="color:var(--text-secondary);font-weight:500">${esc(fo.name)}</span> <span class="crumb-sep">›</span> ` : ""}${esc(f.name)}`, { lead: ic(f.icon, 16, "var(--text-secondary)"),
-        actions: f.trashed ? `<button class="btn sm" data-a="file-restore:${parts[2]}">${ic("rotate-ccw", 13)}Restore</button>`
-          : `<button class="ib" data-a="toast:Link copied" title="Copy link">${ic("link")}</button><button class="ib" data-a="file-trash:${parts[2]}" title="Move to trash">${ic("trash-2")}</button><button class="btn sm" data-a="toast:Download started">${ic("download", 13)}Download</button>` }) +
-        `<div class="scroll"><div class="set">${f.trashed ? `<div class="trash-banner">${ic("trash-2", 15)}This file is in the trash. Restore it to use it again.</div>` : ""}<div class="file-preview">${ic(f.icon, 56, "var(--text-tertiary)")}<span>${esc(f.name)}</span></div>
-          <div class="box">${row("Owner", `<span style="display:inline-flex;gap:6px;align-items:center">${av(f.owner, 18)}${esc(f.owner)}</span>`)}${row("Folder", fo ? esc(fo.name) : "–")}${row("Modified", f.modified + " ago")}${row("Size", f.size)}${row("Sharing", f.shared ? "Shared with workspace" : "Only you")}</div></div></div>`;
+      return header(path.map(p => `<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="openfolder:${p.id}">${esc(p.name)}</span> <span class="crumb-sep">›</span> `).join("") + esc(f.name), { lead: ic(f.icon, 16, "var(--text-secondary)"),
+        actions: tr ? `<button class="btn sm" data-a="trash-restore:${D.trash.indexOf(tr)}">${ic("rotate-ccw", 13)}Restore</button>`
+          : `${folderChip("file", f)}<button class="ib" data-a="star:file|${f.id}" title="${f.starred ? "Unstar" : "Star"}">${ic("star", 16, f.starred ? "var(--warning)" : "")}</button><button class="ib" data-a="trash:file|${f.id}" title="Move to trash">${ic("trash-2")}</button><button class="btn sm" data-a="toast:Download started">${ic("download", 13)}Download</button>` }) +
+        `<div class="scroll"><div class="set">${tr ? `<div class="trash-banner">${ic("trash-2", 15)}This file is in the trash. Restore it to use it again.</div>` : ""}<div class="file-preview">${ic(f.icon, 56, "var(--text-tertiary)")}<span>${esc(f.name)}</span></div>
+          <div class="box">${row("Owner", `<span style="display:inline-flex;gap:6px;align-items:center">${av(f.owner, 18)}${esc(f.owner)}</span>`)}${row("Folder", path.length ? path.map(p => esc(p.name)).join(" / ") : "–")}${row("Modified", f.modified + " ago")}${row("Size", f.size)}${row("Sharing", f.shared ? "Shared with workspace" : "Only you")}</div></div></div>`;
     }
     if (!parts[1] || parts[1] === "folders") return viewAllFolders();
-    const page = parts[1], folder = page === "folder" && D.folders.find(f => f.id === parts[2]);
+    const page = parts[1];
+    if (page === "folder") return viewFolder(parts[2]);
     if (page === "trash") return viewTrash();
     if (page === "kb") return viewKnowledge(parts[2]);
-    const live = liveFiles(), list = folder ? live.filter(f => f.folder === folder.id) : page === "starred" ? live.filter(f => f.starred) : page === "recent" ? live.slice(0, 4) : live;
-    const title = folder ? folder.name : { all: "All files", recent: "Recent", starred: "Starred" }[page] || "All files";
-    const rows = list.map(f => `<div class="prow frow" data-a="go:files/file/${D.files.indexOf(f)}"><span class="fname">${ic(f.icon, 16, "var(--text-secondary)")}<span>${esc(f.name)}</span>${f.starred ? ic("star", 12, "var(--warning)") : ""}</span><span style="display:flex;gap:6px;align-items:center;color:var(--text-secondary)">${av(f.owner, 18)}${esc(f.owner)}</span><span class="mono" style="color:var(--text-tertiary)">${f.modified}</span><span class="mono" style="color:var(--text-tertiary);text-align:right">${f.size}</span><button class="ib sm frow-x" data-a="file-trash:${D.files.indexOf(f)}" title="Move to trash">${ic("trash-2", 13)}</button></div>`).join("");
-    return header(folder ? `<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:files/folders">All folders</span> <span class="crumb-sep">›</span> ${esc(title)}` : esc(title), { lead: ic(folder ? "folder" : "files", 16, "var(--text-secondary)"), count: list.length, actions: `<button class="btn sm primary" data-a="upload">${ic("upload", 13)}Upload</button>` }) +
-      (list.length ? `<div class="scroll"><div class="prow frow head"><span>Name</span><span>Owner</span><span>Modified</span><span style="text-align:right">Size</span><span></span></div>${rows}</div>` : emptyState("files", "Nothing here", "Files you star or that others share with you show up here."));
+    if (page === "starred") return viewStarred();
+    const list = page === "recent" ? liveFiles().slice().sort((a, b) => ageMin(a.modified) - ageMin(b.modified)).slice(0, 6) : liveFiles();
+    const title = { all: "All files", recent: "Recent" }[page] || "All files";
+    const rows = list.map(f => `<div class="prow frow" data-a="go:files/file/${f.id}" data-drag="file:${f.id}" draggable="true"><span class="fname">${ic(f.icon, 16, "var(--text-secondary)")}<span>${esc(f.name)}</span>${f.starred ? ic("star", 12, "var(--warning)") : ""}</span><span style="display:flex;gap:6px;align-items:center;color:var(--text-secondary)">${av(f.owner, 18)}${esc(f.owner)}</span><span class="mono" style="color:var(--text-tertiary)">${f.modified}</span><span class="mono" style="color:var(--text-tertiary);text-align:right">${f.size}</span><button class="ib sm frow-x" data-a="trash:file|${f.id}" title="Move to trash">${ic("trash-2", 13)}</button></div>`).join("");
+    return header(esc(title), { lead: ic(page === "recent" ? "clock" : "files", 16, "var(--text-secondary)"), count: list.length, actions: `<button class="btn sm primary" data-a="upload">${ic("upload", 13)}Upload</button>` }) +
+      (list.length ? `<div class="scroll"><div class="prow frow head"><span>Name</span><span>Owner</span><span>Modified</span><span style="text-align:right">Size</span><span></span></div>${rows}</div>` : emptyState("files", "Nothing here", "Files you upload show up here."));
+  }
+  // starred: every element type, grouped by type
+  function viewStarred() {
+    const items = allItems().filter(i => i.x.starred);
+    return header("Starred", { lead: ic("star", 16, "var(--text-secondary)"), count: items.length }) + `<div class="scroll"><div class="coll">
+      <div class="coll-head"><span class="coll-icon">${ic("star", 24)}</span><h1>Starred</h1></div>
+      <p class="coll-desc">Everything you starred — ToDos, notes, decks, files and more.</p>
+      ${items.length ? `<div class="coll-table">${itemGroups(items, { folderCol: true })}</div>` : emptyState("star", "Nothing starred yet", "Star anything from its “…” menu to keep it close.")}
+    </div></div>`;
   }
   // sizes like "820 KB" / "4.2 MB" → bytes; ages like "12m" / "2h" / "1d" / "1w" → minutes (for "newest")
   const toBytes = s => { const [n, u] = s.split(" "); return +n * ({ KB: 1e3, MB: 1e6, GB: 1e9 }[u] || 1); };
   const fmtBytes = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : b >= 1e6 ? (b / 1e6).toFixed(1).replace(/\.0$/, "") + " MB" : Math.round(b / 1e3) + " KB";
-  const ageMin = a => parseFloat(a) * ({ m: 1, h: 60, d: 1440, w: 10080 }[a.slice(-1)] || 1);
+  const ageMin = a => a === "now" ? 0 : parseFloat(a) * ({ m: 1, h: 60, d: 1440, w: 10080 }[a.slice(-1)] || 1);
+  // My Drive: the top of the global folder tree, with what each folder holds (plan and content counted apart)
   function viewAllFolders() {
-    const rows = D.folders.map(f => {
-      const files = liveFiles().filter(x => x.folder === f.id), newest = files.slice().sort((a, b) => ageMin(a.modified) - ageMin(b.modified))[0];
-      return `<div class="coll-row c5" data-a="go:files/folder/${f.id}">
-        <span class="coll-name">${ic("folder", 16, "var(--text-secondary)")}<span>${esc(f.name)}</span></span>
-        <span class="mono">${files.length}</span><span class="mono">${files.length ? fmtBytes(files.reduce((s, x) => s + toBytes(x.size), 0)) : "–"}</span>
-        <span style="color:var(--text-secondary)">${newest ? newest.modified + " ago" : "–"}</span>
-        <button class="ib sm" data-a="folder-menu:${f.id}" title="More">${ic("ellipsis", 14)}</button></div>`;
+    const rows = kids(null).map(f => {
+      const files = deepItems(f.id, ["file"]).map(i => i.x);
+      return `<div class="coll-row c5" data-a="openfolder:${f.id}" data-drag="folder:${f.id}" data-drop="${f.id}" draggable="true">
+        <span class="coll-name">${folderIcon(f)}<span>${esc(f.name)}</span>${kbState(f).on ? ic("library-big", 12, "var(--text-tertiary)") : ""}</span>
+        <span class="mono">${deepItems(f.id, famTypes("plan")).length}</span><span class="mono">${deepItems(f.id, famTypes("content")).length}</span>
+        <span style="color:var(--text-secondary)">${files.length ? fmtBytes(files.reduce((s, x) => s + toBytes(x.size), 0)) : "–"}</span>
+        <button class="ib sm" data-a="fmenu:${f.id}" title="More">${ic("ellipsis", 14)}</button></div>`;
     }).join("");
+    const loose = allItems().filter(i => !folder(i.x.folder));
     return header("All folders", { lead: ic("folders", 16, "var(--text-secondary)"), actions: `<button class="ib" data-a="palette" title="Search  ${MOD}+S">${ic("search")}</button>` }) +
       `<div class="scroll"><div class="coll">
         <div class="coll-head"><span class="coll-icon">${ic("folders", 24)}</span><h1>All folders</h1><span class="spacer"></span>
-          <button class="btn" data-a="upload">${ic("upload", 14)}Upload</button><button class="btn primary" data-a="newfolder:files">New folder</button></div>
-        <p class="coll-desc">${D.folders.length} folders · ${liveFiles().length} files · ${fmtBytes(liveFiles().reduce((s, x) => s + toBytes(x.size), 0))} in total.</p>
-        ${D.folders.length ? `<div class="coll-table"><div class="coll-row c5 head"><span>Folder name</span><span>Files</span><span>Size</span><span>Last modified</span><span></span></div>${rows}</div>`
-          : emptyState("folders", "No folders yet", "Folders keep related files together.", `<button class="btn primary" data-a="newfolder:files">New folder</button>`)}
+          <button class="btn" data-a="upload">${ic("upload", 14)}Upload</button><button class="btn primary" data-a="newfolder">New folder</button></div>
+        <p class="coll-desc">${D.folders.length} folders · ${allItems().length} elements · ${fmtBytes(liveFiles().reduce((s, x) => s + toBytes(x.size), 0))} of files in total.</p>
+        ${kids(null).length ? `<div class="coll-table"><div class="coll-row c5 head"><span>Folder name</span><span>Plan</span><span>Content</span><span>Files</span><span></span></div>${rows}</div>`
+          : emptyState("folders", "No folders yet", "Folders keep everything that belongs together — ToDos, notes, decks and files.", `<button class="btn primary" data-a="newfolder">New folder</button>`)}
+        ${loose.length ? `<div class="due-head fd-head"><h2>Not in a folder</h2><span class="label-mono">${loose.length}</span></div><div class="coll-table fd-area">${itemGroups(loose)}</div>` : ""}
       </div></div>`;
   }
   // knowledge base: home table of collections, or one collection's files
@@ -749,7 +831,7 @@
     const k = id && D.knowledge.find(x => x.id === id);
     if (k) {
       const files = kbTree(k).items;
-      const rows = files.map(f => `<div class="prow frow" data-a="go:files/file/${D.files.indexOf(f)}"><span class="fname">${ic(f.icon, 16, "var(--text-secondary)")}<span>${esc(f.name)}</span></span><span style="display:flex;gap:6px;align-items:center;color:var(--text-secondary)">${av(f.owner, 18)}${esc(f.owner)}</span><span class="mono" style="color:var(--text-tertiary)">${f.modified}</span><span class="mono" style="color:var(--text-tertiary);text-align:right">${f.size}</span><button class="ib sm frow-x" data-a="kb-remove:${k.id}|${esc(f.name)}" title="Remove from collection">${ic("x", 13)}</button></div>`).join("");
+      const rows = files.map(f => `<div class="prow frow" data-a="go:files/file/${f.id}"><span class="fname">${ic(f.icon, 16, "var(--text-secondary)")}<span>${esc(f.name)}</span></span><span style="display:flex;gap:6px;align-items:center;color:var(--text-secondary)">${av(f.owner, 18)}${esc(f.owner)}</span><span class="mono" style="color:var(--text-tertiary)">${f.modified}</span><span class="mono" style="color:var(--text-tertiary);text-align:right">${f.size}</span><button class="ib sm frow-x" data-a="kb-remove:${k.id}|${esc(f.name)}" title="Remove from collection">${ic("x", 13)}</button></div>`).join("");
       return header(`<span style="color:var(--text-secondary);font-weight:500;cursor:pointer" data-a="go:files/kb">Knowledge base</span> <span class="crumb-sep">›</span> ${esc(k.name)}`, { lead: ic("book-marked", 16, "var(--text-secondary)"), count: files.length }) +
         (files.length ? `<div class="scroll"><div class="prow frow head"><span>Name</span><span>Owner</span><span>Modified</span><span style="text-align:right">Size</span><span></span></div>${rows}</div>`
           : emptyState("book-marked", "Empty collection", "Collections point to files you want to keep as reference — they are not copies."));
@@ -764,33 +846,33 @@
     return header("Knowledge base", { lead: ic("library-big", 16, "var(--text-secondary)"), actions: `<button class="ib" data-a="palette" title="Search  ${MOD}+S">${ic("search")}</button>` }) +
       `<div class="scroll"><div class="coll">
         <div class="coll-head">${kbIcon}<h1>Knowledge base</h1><span class="chip" style="cursor:default">${ic("users", 12)}Workspace</span><span class="spacer"></span>
-          <button class="btn primary" data-a="newfolder:kb">New collection</button></div>
+          <button class="btn primary" data-a="newcollection">New collection</button></div>
         <p class="coll-desc">Curated reference material for your team and the AI assistant · ${D.knowledge.length} collections · ${refs.size} files.</p>
         ${D.knowledge.length ? `<div class="coll-table"><div class="coll-row c5 head"><span>Collection</span><span>Files</span><span>Size</span><span>Last updated</span><span></span></div>${rows}</div>`
-          : emptyState("library-big", "No collections yet", "Group the files your team keeps coming back to.", `<button class="btn primary" data-a="newfolder:kb">New collection</button>`)}
+          : emptyState("library-big", "No collections yet", "Group the files your team keeps coming back to.", `<button class="btn primary" data-a="newcollection">New collection</button>`)}
       </div></div>`;
   }
+  // one trash for every element type
   function viewTrash() {
-    const items = D.files.map((f, n) => ({ f, n })).filter(x => x.f.trashed);
-    const rows = items.map(({ f, n }) => { const fo = D.folders.find(x => x.id === f.folder);
-      return `<div class="coll-row c-trash" data-a="go:files/file/${n}">
-        <span class="coll-name">${ic(f.icon, 16, "var(--text-tertiary)")}<span>${esc(f.name)}</span></span>
-        <span style="color:var(--text-secondary)">${fo ? esc(fo.name) : "–"}</span>
-        <span style="color:var(--text-secondary)">${f.trashedAt === "now" ? "just now" : f.trashedAt + " ago"}</span>
-        <span class="mono" style="color:var(--text-tertiary)">${f.size}</span>
-        <span class="trash-acts"><button class="ib sm" data-a="file-restore:${n}" title="Restore">${ic("rotate-ccw", 14)}</button><button class="ib sm danger" data-a="file-purge:${n}" title="Delete forever">${ic("x", 14)}</button></span></div>`; }).join("");
-    return header("Trash", { lead: ic("trash-2", 16, "var(--text-secondary)"), count: items.length }) + `<div class="scroll"><div class="coll">
+    const rows = D.trash.map((e, n) => { const T = TYPES[e.type], x = e.item;
+      return `<div class="coll-row c-trash"${e.type === "file" ? ` data-a="go:files/file/${x.id}"` : ""}>
+        <span class="coll-name">${ic(T.icon(x), 16, "var(--text-tertiary)")}<span>${esc(T.name(x))}</span></span>
+        <span style="color:var(--text-secondary)">${T.label}${folder(x.folder) ? " · " + esc(folderName(x.folder)) : ""}</span>
+        <span style="color:var(--text-secondary)">${ago(e.at)}</span>
+        <span class="mono" style="color:var(--text-tertiary)">${e.type === "file" ? x.size : ""}</span>
+        <span class="trash-acts"><button class="ib sm" data-a="trash-restore:${n}" title="Restore">${ic("rotate-ccw", 14)}</button><button class="ib sm danger" data-a="trash-purge:${n}" title="Delete forever">${ic("x", 14)}</button></span></div>`; }).join("");
+    return header("Trash", { lead: ic("trash-2", 16, "var(--text-secondary)"), count: D.trash.length }) + `<div class="scroll"><div class="coll">
       <div class="coll-head"><span class="coll-icon">${ic("trash-2", 24)}</span><h1>Trash</h1><span class="spacer"></span>
-        ${items.length ? `<button class="btn danger-btn" data-a="trash-empty">${ic("trash-2", 14)}Empty trash</button>` : ""}</div>
-      <p class="coll-desc">Files in the trash are hidden from folders and search. They are deleted for good after 30 days.</p>
-      ${items.length ? `<div class="coll-table"><div class="coll-row c-trash head"><span>Name</span><span>Original folder</span><span>Deleted</span><span>Size</span><span></span></div>${rows}</div>`
-        : emptyState("trash-2", "Trash is empty", "Files you delete land here first, so you can still restore them.")}
+        ${D.trash.length ? `<button class="btn danger-btn" data-a="trash-empty">${ic("trash-2", 14)}Empty trash</button>` : ""}</div>
+      <p class="coll-desc">Everything you delete — ToDos, notes, decks, files and more — lands here first. Restored items go back to their folder.</p>
+      ${D.trash.length ? `<div class="coll-table"><div class="coll-row c-trash head"><span>Name</span><span>Type · folder</span><span>Deleted</span><span>Size</span><span></span></div>${rows}</div>`
+        : emptyState("trash-2", "Trash is empty", "Things you delete land here first, so you can still restore them.")}
     </div></div>`;
   }
   function viewTodos() {
     const open = D.todos.filter(t => !t.done), done = D.todos.filter(t => t.done);
-    const row = t => `<div class="todo${t.done ? " done" : ""}"><button class="todo-ck" data-a="todo:${t.id}" role="checkbox" aria-checked="${t.done}" title="${t.done ? "Mark as open" : "Mark as done"}">${t.done ? ic("check", 12) : ""}</button><span class="todo-t">${esc(t.text)}</span>${t.due ? `<span class="mono" style="color:var(--text-tertiary)">${t.due}</span>` : ""}<button class="ib sm todo-x" data-a="todo-del:${t.id}" title="Delete">${ic("x", 13)}</button></div>`;
-    return header("ToDos", { lead: ic("list-checks", 16, "var(--text-secondary)"), count: open.length }) +
+    const row = t => { const pr = prio(t.prio); return `<div class="todo${t.done ? " done" : ""}" data-drag="todo:${t.id}" draggable="true"><button class="todo-ck" data-a="todo:${t.id}" role="checkbox" aria-checked="${!!t.done}" title="${t.done ? "Mark as open" : "Mark as done"}">${t.done ? ic("check", 12) : ""}</button><span class="todo-t">${esc(t.text)}</span>${pr.id ? `<span title="${pr.name}">${ic(pr.icon, 13, pr.color)}</span>` : ""}${folderChip("todo", t)}${t.due ? `<span class="mono" style="color:${!t.done && dayDiff(t.due) < 0 ? "var(--danger)" : "var(--text-tertiary)"}">${t.due}</span>` : ""}<button class="ib sm todo-x" data-a="imenu:todo|${t.id}" title="More">${ic("ellipsis", 13)}</button></div>`; };
+    return header("ToDos", { lead: ic("list-checks", 16, "var(--text-secondary)"), count: open.length, actions: `<button class="btn sm primary" data-a="newtodo">${ic("plus", 13)}New ToDo</button>` }) +
       `<div class="scroll"><div class="todos">
         <div class="todo add">${ic("plus", 14, "var(--text-tertiary)")}<input id="todo-new" placeholder="Add a to-do…" autocomplete="off"></div>
         ${open.map(row).join("") || `<div class="todo"><span class="todo-t" style="color:var(--text-tertiary)">Nothing left to do</span></div>`}
@@ -811,7 +893,8 @@
       <div class="box">${row("Workspace name", "Shown in the switcher and emails.", `<input class="input" id="wsname" value="${esc(D.workspace.name)}">`)}
       ${row("URL", "Members reach the workspace here.", `<span class="mono" style="color:var(--text-secondary)">chameleon.app/${esc(D.workspace.name.toLowerCase())}</span>`)}
       ${row("Auto-assign", "Assign new work items to their creator.", sw("autoAssign"))}
-      ${row("Public links", "Allow sharing read-only links outside the workspace.", sw("publicLinks"))}</div>
+      ${row("Public links", "Allow sharing read-only links outside the workspace.", sw("publicLinks"))}
+      ${row("Demo data", "Everything is saved in this browser. Start over with the original sample data.", `<button class="btn sm danger-btn" data-a="reset-data">${ic("rotate-ccw", 13)}Reset</button>`)}</div>
       <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn primary" data-a="savews">Save changes</button></div>`;
     else if (page === "members") body = `<h1>Members</h1><p class="desc">${Object.keys(D.people).length} people have access to this workspace.</p><div class="box">${Object.keys(D.people).map((n, k) => row(`<span style="display:flex;gap:8px;align-items:center">${av(n, 20)}${esc(n)}</span>`, n.toLowerCase().replace(" ", ".") + "@chameleon.app", `<span class="chip">${k === 0 ? "Owner" : "Member"}${ic("chevron-down", 12)}</span>`)).join("")}</div>
       <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn primary" data-a="toast:Invite link copied">${ic("plus", 14)}Invite people</button></div>`;
@@ -828,9 +911,9 @@
   /* ---------- render ---------- */
   function render() {
     document.documentElement.setAttribute("data-theme", S.theme);
-    const parts = S.route.split("/"), prod = parts[0] === "pin" ? S.curProd : parts[0];
+    const parts = S.route.split("/"), prod = /^(pin|folder)$/.test(parts[0]) ? S.curProd : parts[0];
     const sb = { plan: sidebarPlan, work: sidebarWork, wiki: sidebarWiki, files: sidebarFiles, ai: sidebarAI, settings: sidebarSettings }[prod] || sidebarWork;
-    const view = { pin: viewPinned, plan: viewPlan, work: viewWork, wiki: viewWiki, files: viewFiles, ai: viewAI, settings: viewSettings }[parts[0]] || viewWork;
+    const view = { pin: viewPinned, folder: p => viewFolder(p[1]), plan: viewPlan, work: viewWork, wiki: viewWiki, files: viewFiles, ai: viewAI, settings: viewSettings }[parts[0]] || viewWork;
     const scrollEl = root.querySelector(".content .scroll"), keep = scrollEl ? scrollEl.scrollTop : 0, sameRoute = root.dataset.route === S.route;
     const oldSb = root.querySelector(".sidebar"), sbKeep = oldSb && oldSb.dataset.prod === prod ? oldSb.scrollTop : 0;
     const folds = {}; root.querySelectorAll("[data-fold]").forEach(el => folds[el.dataset.fold] = el.classList.contains("open") || el.classList.contains("closed"));
@@ -847,13 +930,14 @@
     const log = document.getElementById("chatlog"); if (log) log.scrollTop = log.scrollHeight;
     const selSticky = root.querySelector(".sticky-card.sel"); if (selSticky && !sameRoute) selSticky.scrollIntoView({ block: "nearest" });
     const alog = document.getElementById("asstlog"); if (alog) alog.scrollTop = alog.scrollHeight;
-    store.set("route", S.route); store.set("theme", S.theme); store.set("prod", S.curProd);
+    store.set("route", S.route); store.set("theme", S.theme); store.set("prod", S.curProd); store.set("openFolders", [...S.openFolders]);
+    save();
   }
   function go(route) {
     if (!route) return;
-    if (route.split("/")[0] === "work" && route.startsWith("work/project/") && !S.route.startsWith(route)) S.tab = "items";
     const p = route.split("/")[0];
-    if (p !== "pin") { S.curProd = p; S.lastRoute[p] = route; }
+    if (p !== "pin" && p !== "folder") { S.curProd = p; S.lastRoute[p] = route; }
+    if (p === "folder") { revealFolder(route.split("/")[1]); if (route !== S.route) S.ftab = "plan"; }
     // leaving Notes / Canvas collapses their sidebar branch (caret or a click on the row reopens it)
     const branches = { "x-notes": "work/notes", "x-canvas": "work/canvas", "x-practice": "wiki/practice", "x-tutor": "wiki/tutor" };
     let closed = false;
@@ -870,7 +954,7 @@
     menuItems = items;
     menuEl = document.createElement("div");
     menuEl.className = "menu";
-    menuEl.innerHTML = items.map((it, n) => it === "-" ? '<div class="msep"></div>' : `<div class="mi" data-mi="${n}">${it.lead || (it.icon ? ic(it.icon, 15, it.color) : "")}<span>${esc(it.label)}</span>${it.check ? `<span class="ck">${ic("check", 14)}</span>` : it.kbd ? `<span style="margin-left:auto;display:flex;gap:3px">${kbd(it.kbd)}</span>` : ""}</div>`).join("");
+    menuEl.innerHTML = items.map((it, n) => it === "-" ? '<div class="msep"></div>' : it.head ? `<div class="mh label-mono">${esc(it.head)}</div>` : `<div class="mi" data-mi="${n}">${it.lead || (it.icon ? ic(it.icon, 15, it.color) : "")}<span>${esc(it.label)}</span>${it.check ? `<span class="ck">${ic("check", 14)}</span>` : it.kbd ? `<span style="margin-left:auto;display:flex;gap:3px">${kbd(it.kbd)}</span>` : ""}</div>`).join("");
     document.body.appendChild(menuEl);
     const r = anchor.getBoundingClientRect(), mw = menuEl.offsetWidth, mh = menuEl.offsetHeight;
     menuEl.style.left = Math.max(8, Math.min(r.left, innerWidth - mw - 8)) + "px";
@@ -894,56 +978,211 @@
     document.body.appendChild(layer); onMount && onMount(layer);
   }
 
+  /* new ToDo dialog: title, due date, priority and folder */
+  const fmtDay = d => String(d.getDate()).padStart(2, "0") + " " + MONTHS[d.getMonth()];
+  const plusDays = n => { const d = new Date(TODAY); d.setDate(d.getDate() + n); return fmtDay(d); };
   function draftChips() {
-    const d = S.draft, st = status(d.status), pr = prio(d.prio), p = project(d.project);
-    if (d.kind === "project") return `<span class="chip" data-a="d-status">${ic(st.icon, 13, st.color)}${st.name}</span><span class="chip" data-a="d-prio">${ic(pr.icon, 13, pr.color)}${pr.name}</span><span class="chip" data-a="d-who">${av(d.who, 14)}Lead: ${esc(d.who)}</span><span class="chip is-empty">${ic("calendar", 13)}Target</span>`;
-    return `<span class="chip" data-a="d-status">${ic(st.icon, 13, st.color)}${st.name}</span><span class="chip" data-a="d-prio">${ic(pr.icon, 13, pr.color)}${pr.name}</span><span class="chip" data-a="d-who">${av(d.who, 14)}${esc(d.who)}</span><span class="chip" data-a="d-label"><span class="dot" style="background:${D.labels[d.label]}"></span>${esc(d.label)}</span><span class="chip" data-a="d-project">${p.emoji} ${esc(p.name)}</span>`;
+    const d = S.draft, pr = prio(d.prio), f = folder(d.folder);
+    return `<span class="chip${d.due ? "" : " is-empty"}" data-a="d-due">${ic("calendar", 13)}${d.due || "Due date"}</span>
+      <span class="chip${pr.id ? "" : " is-empty"}" data-a="d-prio">${ic(pr.icon, 13, pr.color)}${pr.id ? pr.name : "Priority"}</span>
+      <span class="chip${f ? "" : " is-empty"}" data-a="d-folder">${f ? folderIcon(f, 13) : ic("folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`;
   }
-  function refreshDraftChips() { const c = layer && layer.querySelector("#dchips"); if (c) c.innerHTML = draftChips(); }
-  function openCreate(kind, preset = {}) {
-    const cur = S.route.match(/^work\/project\/(\w+)/);
-    S.draft = Object.assign({ kind, status: "todo", prio: 0, who: D.me, label: "Enhancement", project: cur ? cur[1] : D.projects[0].id, more: false }, preset);
-    const p = project(S.draft.project), isP = kind === "project";
+  function refreshDraftChips() {
+    const c = layer && layer.querySelector("#dchips"); if (c) c.innerHTML = draftChips();
+    const pc = layer && layer.querySelector("#dcrumb"); if (pc) pc.innerHTML = draftCrumb();
+  }
+  const draftCrumb = () => { const f = folder(S.draft.folder); return f ? folderIcon(f, 13) + esc(f.name) : ic("list-checks", 13) + "ToDos"; };
+  function openTodoDialog(preset = {}) {
+    S.draft = Object.assign({ due: null, prio: 0, folder: null, more: false }, preset);
     openLayer(`<div class="dialog" role="dialog" aria-modal="true">
-      <div class="dh"><span class="pill-crumb">${isP ? ic("box", 13) + esc(D.workspace.name) : p.emoji + " " + esc(p.key)}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">${isP ? "New project" : "New work item"}</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
-      <div class="db">${isP ? `<div style="width:32px;height:32px;border-radius:6px;background:var(--bg-selected);display:grid;place-items:center;margin:6px 0">${ic("box", 16)}</div>` : ""}
-        <input class="big" id="dtitle" placeholder="${isP ? "Project name" : "Issue title"}" autocomplete="off">
-        <textarea id="ddesc" placeholder="${isP ? "Add a short summary…" : "Add a description…"}"></textarea>
-        <div id="dchips" style="display:flex;flex-wrap:wrap;gap:6px">${draftChips()}</div></div>
-      <div class="df">${isP ? "" : `<span style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font:var(--type-small)"><button class="switch" data-a="d-more" role="switch"></button>Create more</span><span style="flex:1"></span>`}
-        <button class="btn primary" data-a="create">${isP ? "Create project" : "Create work item"} ${kbd([MOD, "⏎"])}</button></div></div>`,
+      <div class="dh"><span class="pill-crumb" id="dcrumb">${draftCrumb()}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">New ToDo</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db"><input class="big" id="dtitle" placeholder="What needs to be done?" autocomplete="off">
+        <div id="dchips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${draftChips()}</div></div>
+      <div class="df"><span style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font:var(--type-small)"><button class="switch" data-a="d-more" role="switch"></button>Create more</span><span style="flex:1"></span>
+        <button class="btn primary" data-a="create">Create ToDo ${kbd([MOD, "⏎"])}</button></div></div>`,
       l => l.querySelector("#dtitle").focus());
   }
   function submitCreate() {
-    const d = S.draft, title = layer.querySelector("#dtitle").value.trim();
-    if (!title) { layer.querySelector("#dtitle").focus(); return; }
-    if (d.kind === "project") {
-      const id = "p" + Date.now().toString(36);
-      D.projects.push({ id, emoji: "📦", name: title, key: title.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "NEW", lead: d.who, target: "—", progress: 0 });
-      closeLayer(); go("work/project/" + id); toast("Project created"); return;
-    }
-    const p = project(d.project), n = Math.max(0, ...D.issues.filter(i => i.project === p.id).map(i => +i.id.split("-")[1])) + 1;
-    const id = p.key + "-" + n;
-    D.issues.unshift({ id, project: p.id, status: d.status, prio: d.prio, title, label: d.label, who: d.who, desc: layer.querySelector("#ddesc").value.trim() });
-    toast(id + " created");
-    if (d.more) { layer.querySelector("#dtitle").value = ""; layer.querySelector("#ddesc").value = ""; layer.querySelector("#dtitle").focus(); render(); }
+    const d = S.draft, input = layer.querySelector("#dtitle"), text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    D.todos.unshift({ id: uid("t"), text, due: d.due, prio: d.prio, folder: d.folder });
+    if (d.folder) revealFolder(d.folder);
+    toast("ToDo created" + (d.folder ? " in " + folderName(d.folder) : ""));
+    if (d.more) { input.value = ""; input.focus(); render(); }
     else { closeLayer(); render(); }
+  }
+
+  /* folder picker: the whole tree, indented; disabled ids (a folder itself and its children) are left out */
+  function folderPicker(el, cur, onPick, exclude = []) {
+    const skip = new Set(exclude), rows = [];
+    const walk = (pid, depth) => kids(pid).forEach(f => { if (skip.has(f.id)) return; rows.push({ lead: `<span style="display:inline-flex;align-items:center;margin-left:${Math.min(depth, 6) * 14}px">${folderIcon(f, 15)}</span>`, label: f.name, check: cur === f.id, run: () => onPick(f.id) }); walk(f.id, depth + 1); });
+    walk(null, 0);
+    openMenu(el, [{ icon: "folder-x", label: "No folder", check: !cur, run: () => onPick(null) }, "-"].concat(rows.length ? rows : [{ icon: "folder", label: "No folders yet" }]));
+  }
+  // move any element into a folder (or out of all folders)
+  function moveItem(t, id, fid) {
+    const x = find(t, id); if (!x || (x.folder || null) === fid) return;
+    x.folder = fid; if ("updated" in x) x.updated = "now";
+    if (fid) revealFolder(fid);
+    render(); toast(fid ? "Moved to " + folderName(fid) : "Removed from folder");
+  }
+  // move a folder under another one (never into itself or its own subfolders)
+  function moveFolder(id, pid) {
+    const f = folder(id); if (!f || id === pid || subtreeIds(id).includes(pid) || (f.parent || null) === pid) return false;
+    f.parent = pid; if (pid) revealFolder(pid);
+    render(); toast(pid ? "Moved into " + folderName(pid) : "Moved to the top level"); return true;
+  }
+  // trash: elements leave their list and wait in D.trash until restored or purged
+  function trashItem(t, id) {
+    const list = TYPES[t].list(), n = list.findIndex(x => x.id === id); if (n < 0) return;
+    const [x] = list.splice(n, 1);
+    D.trash.unshift({ type: t, item: x, at: "now" });
+    if (t === "chat" && S.asst.chatId === id) S.asst.chatId = null;
+    toast(TYPES[t].label + " moved to trash");
+  }
+  function restoreTrash(n) {
+    const e = D.trash[n]; if (!e) return;
+    D.trash.splice(n, 1);
+    if (e.item.folder && !folder(e.item.folder)) e.item.folder = null;
+    TYPES[e.type].list().unshift(e.item);
+    toast(TYPES[e.type].name(e.item) + " restored");
+  }
+  // the same "…" / right-click menu for every element
+  function itemMenu(el, t, id) {
+    const x = find(t, id); if (!x) return;
+    const T = TYPES[t];
+    openMenu(el, [
+      { icon: T.icon(x), label: "Open", run: () => openItem(t, id) },
+      { icon: "folder-input", label: "Move to folder…", run: () => folderPicker(el, x.folder || null, fid => moveItem(t, id, fid)) },
+      { icon: "star", color: x.starred ? "var(--warning)" : "", label: x.starred ? "Unstar" : "Star", run: () => { x.starred = !x.starred; render(); } },
+      ...(t === "todo" ? [{ icon: x.done ? "circle" : "circle-check", label: x.done ? "Mark as open" : "Mark as done", run: () => { x.done = !x.done; render(); } }] : []),
+      "-",
+      { icon: "trash-2", color: "var(--danger)", label: "Move to trash", run: () => { const here = S.route === T.route(x) && T.fam === "content"; trashItem(t, id); here ? go(t === "note" ? "work/notes" : t === "canvas" ? "work/canvas" : t === "chat" ? "ai/new" : t === "file" ? "files/trash" : S.lastRoute[S.curProd]) : render(); } },
+    ]);
+  }
+  function openItem(t, id) {
+    if (t === "deck") return A.study(id);
+    const x = find(t, id); if (x) go(TYPES[t].route(x));
+  }
+  // folder "…" / right-click menu
+  function folderMenu(el, id) {
+    const f = folder(id); if (!f) return;
+    openMenu(el, [
+      { icon: "folder-open", label: "Open", run: () => go("folder/" + id) },
+      { icon: "folder-plus", label: "New subfolder", run: () => openFolderSettings(null, { parent: id }) },
+      { icon: "settings-2", label: "Settings…", run: () => openFolderSettings(id) },
+      { icon: "folder-input", label: "Move to…", run: () => folderPicker(el, f.parent || null, pid => moveFolder(id, pid), subtreeIds(id)) },
+      "-",
+      { icon: "trash-2", color: "var(--danger)", label: "Delete folder…", run: () => deleteFolderDialog(id) },
+    ]);
+  }
+
+  /* folder settings dialog (also creates folders) */
+  function folderDialogHtml() {
+    const d = S.fdraft, isNew = !d.id, parent = folder(d.parent);
+    const inherited = (() => { for (let x = parent; x; x = folder(x.parent)) if (x.kb != null) return { on: x.kb, from: x }; return { on: false, from: null }; })();
+    const kbOn = d.kb != null ? d.kb : inherited.on;
+    const kbDesc = d.kb == null
+      ? (inherited.from ? `Inherited from <b>${esc(inherited.from.name)}</b>.` : "Adds this folder and all its subfolders to the raw part of the Knowledge Base.")
+      : `Set on this folder · applies to all subfolders.${inherited.from ? ` <span class="link" data-a="fd-kb-inherit">Use inherited (${inherited.on ? "on" : "off"})</span>` : ""}`;
+    const sw = (on, a) => `<button class="switch${on ? " on" : ""}" data-a="${a}" role="switch" aria-checked="${on}"></button>`;
+    const row = (t, desc, ctl) => `<div class="box-row"><div class="l"><b>${t}</b><span>${desc}</span></div>${ctl}</div>`;
+    const icons = FOLDER_ICONS.map(n => `<button class="ib${!d.emoji && (d.icon || "folder") === n ? " on" : ""}" data-a="fd-icon:${n}" title="${n}">${ic(n, 16, FOLDER_COLORS[d.color || ""] || "")}</button>`).join("");
+    const colors = Object.keys(FOLDER_COLORS).map(c => `<button class="fd-color${(d.color || "") === c ? " on" : ""}" data-a="fd-color:${c || "none"}" title="${c || "Default"}" style="background:${FOLDER_COLORS[c] || "var(--text-secondary)"}"></button>`).join("");
+    return `<div class="dialog fd-dialog" role="dialog" aria-modal="true">
+      <div class="dh"><span class="pill-crumb" data-a="fd-parent" title="Location" style="cursor:pointer">${parent ? folderIcon(parent, 13) + esc(fpath(parent.id).map(p => p.name).join(" / ")) : ic("folders", 13) + "Top level"}${ic("chevron-down", 12)}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">${isNew ? (d.project ? "New project" : "New folder") : "Folder settings"}</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db">
+        <div style="display:flex;align-items:center;gap:12px"><span class="coll-icon">${d.emoji ? `<span style="font-size:20px">${d.emoji}</span>` : ic(d.icon || "folder", 22, FOLDER_COLORS[d.color || ""] || "")}</span><input class="big" id="fd-name" placeholder="Folder name" value="${esc(d.name)}" autocomplete="off"></div>
+        <textarea id="fd-desc" class="fd-desc" placeholder="Add a short description…">${esc(d.desc || "")}</textarea>
+        <div class="label-mono" style="margin:4px 0 8px">Icon</div><div class="fd-icons">${icons}</div>
+        <div class="label-mono" style="margin:14px 0 8px">Colour</div><div class="fd-colors">${colors}</div>
+        <div class="box" style="margin-top:18px">
+          ${row(`${ic("library-big", 14)} Knowledge Base`, kbDesc, sw(kbOn, "fd-kb"))}
+          ${row(`${ic("folder-kanban", 14)} Project`, "Track progress, a target date and milestones for everything in this folder.", sw(!!d.project, "fd-project"))}
+          ${d.project ? row("Target date", "Shown on the folder page and in Timelines.", `<input class="input" id="fd-target" value="${esc(d.project.target || "")}" placeholder="e.g. 15 Dec" style="min-width:140px">`) : ""}
+        </div></div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="fd-save">${isNew ? "Create folder" : "Save"}</button></div></div>`;
+  }
+  function openFolderSettings(id, preset = {}) {
+    const f = folder(id);
+    S.fdraft = f ? JSON.parse(JSON.stringify(f)) : Object.assign({ id: null, name: "", parent: null, icon: "folder", color: "", desc: "" }, preset);
+    if (S.fdraft.project === true) S.fdraft.project = { target: "", milestones: [] };
+    openLayer(folderDialogHtml(), l => { const n = l.querySelector("#fd-name"); n.focus(); n.select(); });
+  }
+  // keep typed values, then redraw the dialog in place
+  function syncFolderDraft() {
+    if (!layer || !S.fdraft) return;
+    const v = sel => { const el = layer.querySelector(sel); return el ? el.value : null; };
+    const d = S.fdraft; d.name = v("#fd-name") ?? d.name; d.desc = v("#fd-desc") ?? d.desc;
+    if (d.project && v("#fd-target") != null) d.project.target = v("#fd-target").trim();
+  }
+  function redrawFolderDialog() { syncFolderDraft(); if (!layer) return; layer.innerHTML = folderDialogHtml(); layer.firstElementChild.style.animation = "none"; }
+  function saveFolderDialog() {
+    syncFolderDraft();
+    const d = S.fdraft, name = d.name.trim();
+    if (!name) { const n = layer.querySelector("#fd-name"); n && n.focus(); return; }
+    d.name = name; d.desc = (d.desc || "").trim();
+    if (!d.project) delete d.project;
+    if (d.kb == null) delete d.kb;
+    let id = d.id;
+    if (!id) { id = d.id = uid("f"); D.folders.push(d); toast((d.project ? "Project" : "Folder") + " created"); }
+    else { const f = folder(id); Object.keys(f).forEach(k => delete f[k]); Object.assign(f, d); toast("Folder saved"); }
+    S.fdraft = null; closeLayer(); revealFolder(id);
+    if (S.route === "folder/" + id) render(); else go("folder/" + id);
+  }
+  function deleteFolderDialog(id) {
+    const f = folder(id), subs = descendants(id), items = deepItems(id);
+    const what = [subs.length ? `${subs.length} ${subs.length === 1 ? "subfolder" : "subfolders"}` : "", items.length ? `${items.length} ${items.length === 1 ? "element" : "elements"}` : ""].filter(Boolean).join(" and ");
+    openLayer(`<div class="dialog" style="width:min(460px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">Delete “${esc(f.name)}”?</span></div>
+      <div class="db"><p style="margin:0;color:var(--text-secondary)">${what ? `It contains ${what}. Keep the contents in ${f.parent ? "“" + esc(folderName(f.parent)) + "”" : "the top level"}, or move the elements to the trash together with the folder.` : "This folder is empty."}</p></div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button>${what ? `<button class="btn" data-a="fdel-keep:${id}">Keep contents</button>` : ""}<button class="btn danger-btn" data-a="fdel-all:${id}">${what ? "Delete with contents" : "Delete folder"}</button></div></div>`);
+  }
+  function deleteFolder(id, withContents) {
+    const f = folder(id), parent = f.parent || null, ids = subtreeIds(id);
+    if (withContents) { deepItems(id).forEach(({ t, x }) => trashItem(t, x.id)); D.folders = D.folders.filter(x => !ids.includes(x.id)); }
+    else { // children move up one level; the folder's own elements move to its parent
+      kids(id).forEach(k => k.parent = parent);
+      itemsIn(id).forEach(({ x }) => x.folder = parent);
+      D.folders = D.folders.filter(x => x.id !== id);
+    }
+    closeLayer(); toast("Folder deleted");
+    if (S.route.startsWith("folder/") && ids.includes(S.route.split("/")[1])) go(parent ? "folder/" + parent : S.lastRoute[S.curProd]); else render();
+  }
+
+  /* quick create: one menu for everything, split into Plan and Content; fid preselects the folder */
+  const ctxFolder = () => S.route.startsWith("folder/") ? S.route.split("/")[1] : null;
+  function createItem(t, fid = null) {
+    if (t === "todo") return openTodoDialog({ folder: fid });
+    if (t === "project") return openFolderSettings(null, { parent: fid, project: true, icon: "folder-kanban" });
+    if (t === "folder") return openFolderSettings(null, { parent: fid });
+    if (fid) revealFolder(fid);
+    if (t === "note") { const id = uid("n"); D.notes.unshift({ id, title: "", body: "", labels: [], updated: "now", folder: fid }); S.openFolders.add("x-notes"); go("work/notes/" + id); setTimeout(() => { const h = document.querySelector(`[data-edit="note-title:${id}"]`); h && h.focus(); }); }
+    else if (t === "canvas") { const id = uid("b"); D.canvases.push({ id, name: "Untitled canvas", items: [], updated: "now", folder: fid }); S.openFolders.add("x-canvas"); go("work/canvas/" + id); }
+    else if (t === "sticky") { const id = uid("s"); D.stickies.unshift({ id, text: "", color: "amber", updated: "now", folder: fid }); go("work/stickies/" + id); setTimeout(() => { const el = document.querySelector(`[data-edit="sticky:${id}"]`); el && el.focus(); }); }
+    else if (t === "page") { const id = uid("pg"); D.pages.push({ id, icon: "file-text", title: "Untitled", body: [""], folder: fid }); go("wiki/" + id); setTimeout(() => { const h = document.querySelector("[data-edit^='page-title']"); if (h) { h.focus(); document.execCommand && document.execCommand("selectAll"); } }); }
+  }
+  const QC = { plan: [["todo", "circle", "ToDo", ["C"]], ["project", "folder-kanban", "Project folder"]], content: [["note", "file-text", "Note"], ["canvas", "layout-dashboard", "Canvas"], ["sticky", "sticky-note", "Sticky"], ["page", "book-open", "Learn page"]] };
+  function quickCreate(el, fid = ctxFolder(), fams = ["plan", "content"]) {
+    const items = [];
+    fams.forEach(fam => { items.push({ head: fam === "plan" ? "Plan" : "Content" }); QC[fam].forEach(([t, icon, label, k]) => items.push({ icon, label, kbd: k, run: () => createItem(t, fid) })); });
+    if (fams.length > 1) items.push("-", { icon: "folder-plus", label: fid ? "Subfolder" : "Folder", run: () => createItem("folder", fid) });
+    openMenu(el || document.querySelector(".sidebar .compose") || document.querySelector(".search"), items);
   }
 
   /* command palette */
   function paletteItems() {
     const out = [];
     const add = (group, icon, label, run, k) => out.push({ group, icon, label, run, kbd: k });
-    add("Actions", "square-pen", "Create work item", () => openCreate("issue"), ["C"]);
-    add("Actions", "box", "Create project", () => openCreate("project"));
+    add("Actions", "circle", "Create ToDo", () => openTodoDialog({ folder: ctxFolder() }), ["C"]);
+    add("Actions", "file-text", "Create note", () => createItem("note", ctxFolder()));
+    add("Actions", "folder-plus", "Create folder", () => createItem("folder", ctxFolder()));
+    add("Actions", "folder-kanban", "Create project folder", () => createItem("project", ctxFolder()));
     add("Actions", S.theme === "dark" ? "sun" : "moon", "Switch to " + (S.theme === "dark" ? "light" : "dark") + " theme", () => { S.theme = S.theme === "dark" ? "light" : "dark"; render(); });
     add("Actions", "panel-left", "Toggle sidebar", () => { S.collapsed = !S.collapsed; render(); }, ["["]);
-    [["work/notes", "notebook-pen", "Notes"], ["work/canvas", "shapes", "Canvas"], ["work/stickies", "sticky-note", "Stickies"], ["work/home", "house", "Home"], ["pin/inbox", "inbox", "Inbox"], ["pin/todos", "list-checks", "ToDos"], ["work/mine", "scan-eye", "My issues"], ["work/projects", "box", "Projects"], ["plan/timelines", "chart-gantt", "Timelines"], ["plan/horizons", "telescope", "Horizons"], ["plan/time", "timer", "Time tracking"], ["plan/analytics", "chart-column", "Analytics"], ["pin/calendar", "calendar", "Calendar"], ["wiki/flashcards", "gallery-vertical-end", "Flashcards"], ["wiki/practice", "dumbbell", "Practice"], ["wiki/practice/test", "clipboard-check", "Practice test"], ["wiki/practice/braindump", "brain", "Brain dump"], ["wiki/tutor", "graduation-cap", "AI Tutor"], ["wiki/tutor/chat", "messages-square", "Tutor conversation"], ["wiki/tutor/summary", "scroll-text", "Tutor summary"], ["wiki/progress", "trending-up", "Track & progress"], ["files/folders", "folders", "All folders"], ["files/trash", "trash-2", "Trash"], ["files/kb", "library-big", "Knowledge base"], ["ai/new", "bot", "AI"], ["settings/general", "settings", "Settings"]]
+    [["pin/inbox", "inbox", "Inbox"], ["pin/calendar", "calendar", "Calendar"], ["pin/todos", "list-checks", "ToDos"], ["work/notes", "notebook-pen", "Notes"], ["work/canvas", "shapes", "Canvas"], ["work/stickies", "sticky-note", "Stickies"], ["plan/timelines", "chart-gantt", "Timelines"], ["plan/horizons", "telescope", "Horizons"], ["plan/time", "timer", "Time tracking"], ["plan/analytics", "chart-column", "Analytics"], ["wiki/flashcards", "gallery-vertical-end", "Flashcards"], ["wiki/practice", "dumbbell", "Practice"], ["wiki/practice/test", "clipboard-check", "Practice test"], ["wiki/practice/braindump", "brain", "Brain dump"], ["wiki/tutor", "graduation-cap", "AI Tutor"], ["wiki/tutor/chat", "messages-square", "Tutor conversation"], ["wiki/tutor/summary", "scroll-text", "Tutor summary"], ["wiki/progress", "trending-up", "Track & progress"], ["files/folders", "folders", "All folders"], ["files/starred", "star", "Starred"], ["files/trash", "trash-2", "Trash"], ["files/kb", "library-big", "Knowledge base"], ["ai/new", "bot", "AI"], ["settings/general", "settings", "Settings"]]
       .forEach(([r, i, l]) => add("Go to", i, l, () => go(r)));
-    D.projects.forEach(p => add("Projects", null, p.emoji + "  " + p.name, () => go("work/project/" + p.id)));
-    D.issues.forEach(i => add("Work items", status(i.status).icon, i.id + "  " + i.title, () => go("work/issue/" + i.id)));
-    D.files.forEach((f, n) => { if (!f.trashed) add("Files", f.icon, f.name, () => go("files/file/" + n)); });
-    D.pages.forEach(p => add("Learn", p.icon, p.title, () => go("wiki/" + p.id)));
+    D.folders.forEach(f => add("Folders", f.icon || "folder", fpath(f.id).map(p => p.name).join(" / "), () => go("folder/" + f.id)));
+    TYPE_KEYS.forEach(t => TYPES[t].list().forEach(x => add(TYPES[t].plural, TYPES[t].icon(x), TYPES[t].name(x), () => openItem(t, x.id))));
     return out;
   }
   function openPalette() {
@@ -977,20 +1216,20 @@
       l => { const b = l.querySelector("#confirm-ok"); b.focus(); b.addEventListener("click", () => { closeLayer(); onOk(); }); });
   }
   function openShortcuts() {
-    const rows = [["Search / command menu", [MOD, "S"]], ["New work item", ["C"]], ["Toggle sidebar", ["["]], ["Plan / Work / Learn / Files / AI", ["1", "–", "5"]], ["Settings", [","]], ["Close dialog or menu", ["Esc"]], ["Create from dialog", [MOD, "⏎"]], ["AI assistant", ["A"]]];
+    const rows = [["Search / command menu", [MOD, "S"]], ["Create something", ["C"]], ["Toggle sidebar", ["["]], ["Plan / Work / Learn / Files / AI", ["1", "–", "5"]], ["Settings", [","]], ["Close dialog or menu", ["Esc"]], ["Create from dialog", [MOD, "⏎"]], ["AI assistant", ["A"]], ["Element actions", ["Right-click"]], ["Move into a folder", ["Drag"]]];
     openLayer(`<div class="dialog" style="width:min(440px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">Keyboard shortcuts</span><span style="flex:1"></span><button class="ib" data-a="close">${ic("x")}</button></div><div class="db">${rows.map(([l, k]) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)"><span style="color:var(--text-secondary)">${l}</span><span style="display:flex;gap:3px">${kbd(k)}</span></div>`).join("")}</div></div>`);
   }
 
   /* ---------- AI (local, rule-based replies over sample data) ---------- */
   function answer(q) {
-    const s = q.toLowerCase(), li = list => "<ul>" + list.map(i => `<li><span class="mono">${i.id}</span> ${esc(i.title)} — ${esc(i.who)}</li>`).join("") + "</ul>";
-    const open = D.issues.filter(i => i.status !== "done");
-    if (/overdue|late|fällig|überfällig/.test(s)) { const o = open.filter(i => i.due && dayDiff(i.due) < 0); return o.length ? (o.length === 1 ? "1 work item is overdue:" : `${o.length} work items are overdue:`) + li(o) : "Nothing is overdue."; }
-    if (/urgent|dringend/.test(s)) { const u = open.filter(i => i.prio === 1); return u.length ? `Sticky drafted with ${u.length} urgent work items:` + li(u) : "There are no urgent work items."; }
-    if (/week|summar|woche|zusammen/.test(s)) { const p = D.issues.filter(i => i.status === "progress"), d = D.issues.filter(i => i.status === "done"); return `This week ${p.length} items are in progress and ${d.length} are done. In progress:` + li(p); }
-    if (/release|notes/.test(s)) { const d = D.issues.filter(i => i.status === "done"); return "<b>Release notes (draft)</b><ul>" + d.map(i => `<li>${esc(i.title)}</li>`).join("") + "<li>Double navigation with product rail and contextual sidebar</li></ul>"; }
-    if (/who|wer|working/.test(s)) return "<ul>" + Object.keys(D.people).map(n => `<li><b>${esc(n)}</b>: ${open.filter(i => i.who === n).length} open items</li>`).join("") + "</ul>";
-    return `I looked through ${D.issues.length} work items, ${D.projects.length} projects and ${D.pages.length} wiki pages. Try asking what is overdue, who is working on what, or for a summary of this week.`;
+    const s = q.toLowerCase(), li = list => "<ul>" + list.map(t => `<li>${esc(t.text)}${t.folder ? ` — <span class="mono">${esc(folderName(t.folder))}</span>` : ""}${t.due ? ` · ${t.due}` : ""}</li>`).join("") + "</ul>";
+    const open = D.todos.filter(t => !t.done);
+    if (/overdue|late|fällig|überfällig/.test(s)) { const o = open.filter(t => t.due && dayDiff(t.due) < 0); return o.length ? (o.length === 1 ? "1 ToDo is overdue:" : `${o.length} ToDos are overdue:`) + li(o) : "Nothing is overdue."; }
+    if (/urgent|dringend/.test(s)) { const u = open.filter(t => t.prio === 1); return u.length ? `Sticky drafted with ${u.length} urgent ToDos:` + li(u) : "There are no urgent ToDos."; }
+    if (/week|summar|woche|zusammen/.test(s)) { const w = open.filter(t => t.due && dayDiff(t.due) >= 0 && dayDiff(t.due) <= 7), d = D.todos.filter(t => t.done); return `${open.length} ToDos are open and ${d.length} are done. Due in the next 7 days:` + (w.length ? li(w) : " nothing."); }
+    if (/release|notes/.test(s)) { const d = D.todos.filter(t => t.done); return "<b>Release notes (draft)</b><ul>" + d.map(t => `<li>${esc(t.text)}</li>`).join("") + "<li>One global folder tree across the whole app</li></ul>"; }
+    if (/folder|ordner|who|wer|working|open per/.test(s)) return "<ul>" + kids(null).map(f => `<li><b>${esc(f.name)}</b>: ${deepItems(f.id, ["todo"]).filter(i => !i.x.done).length} open ToDos, ${deepItems(f.id, famTypes("content")).length} content elements</li>`).join("") + "</ul>";
+    return `I looked through ${D.todos.length} ToDos, ${D.folders.length} folders and ${D.pages.length} Learn pages. Try asking what is overdue, what is open per folder, or for a summary of this week.`;
   }
   /* ---------- AI assistant side panel (opened from the top bar, keeps the current page) ---------- */
   const MODELS = ["Claude Sonnet 5.5", "Claude Opus 5.5", "Claude Haiku 5.5"];
@@ -1001,7 +1240,7 @@
     { id: "autopilot", label: "Autopilot", icon: "sparkles", ph: "Describe a task to run on autopilot…" },
   ];
   const asstMode = () => ASST_MODES.find(m => m.id === S.asst.mode);
-  const ASST_SUGGEST = ["Create a sticky with all urgent work items", "What is overdue?", "Summarise this week for the team"];
+  const ASST_SUGGEST = ["Create a sticky with all urgent ToDos", "What is overdue?", "Summarise this week for the team"];
   function assistant() {
     const chat = D.chats.find(c => c.id === S.asst.chatId), log = chat ? chat.log : [];
     const body = log.length
@@ -1044,26 +1283,22 @@
   }
 
   /* ---------- actions ---------- */
-  function statusMenu(el, i) { openMenu(el, D.statuses.map(s => ({ icon: s.icon, color: s.color, label: s.name, check: i.status === s.id, run: () => { i.status = s.id; render(); } }))); }
-  function prioMenu(el, i) { openMenu(el, D.priorities.map(p => ({ icon: p.icon, color: p.color, label: p.name, check: i.prio === p.id, run: () => { i.prio = p.id; render(); } }))); }
-  function whoMenu(el, cur, set) { openMenu(el, Object.keys(D.people).map(n => ({ lead: av(n, 16), label: n, check: cur === n, run: () => set(n) }))); }
-  function labelMenu(el, cur, set) { openMenu(el, Object.keys(D.labels).map(l => ({ lead: `<span style="width:15px;display:grid;place-items:center"><span style="width:8px;height:8px;border-radius:99px;background:${D.labels[l]}"></span></span>`, label: l, check: cur === l, run: () => set(l) }))); }
 
   const A = {
     go: (v) => go(v),
     product: (v) => go(S.lastRoute[v] || v),
     back: () => go(S.lastRoute.work),
     sec: (k) => { S.closedSecs.has(k) ? S.closedSecs.delete(k) : S.closedSecs.add(k); store.set("closedSecs", [...S.closedSecs]); render(); },
-    grp: (k) => { S.closedGroups.has(k) ? S.closedGroups.delete(k) : S.closedGroups.add(k); render(); },
     collapse: () => { S.collapsed = !S.collapsed; render(); },
     theme: () => { S.theme = S.theme === "dark" ? "light" : "dark"; render(); },
     settheme: (v) => { S.theme = v; render(); },
-    tab: (v) => { S.tab = v; render(); },
     palette: () => openPalette(),
     shortcuts: () => openShortcuts(),
-    newissue: (v) => openCreate("issue", D.statuses.some(s => s.id === v) ? { status: v } : /^p\d$/.test(v || "") ? { prio: +v.slice(1) } : {}),
-    newproject: () => openCreate("project", { status: "backlog" }),
-    newpage: () => { const id = "pg" + Date.now().toString(36); D.pages.push({ id, icon: "file-text", title: "Untitled", body: [""] }); D.learnFolders[0].items.push({ page: id }); S.openFolders.add(D.learnFolders[0].id); go("wiki/" + id); setTimeout(() => { const h = document.querySelector("[data-edit^='page-title']"); if (h) { h.focus(); document.execCommand && document.execCommand("selectAll"); } }); },
+    newproject: () => createItem("project", ctxFolder()),
+    newpage: () => createItem("page", ctxFolder()),
+    newtodo: () => openTodoDialog({ folder: ctxFolder() }),
+    qc: (v, el) => quickCreate(el, v || ctxFolder()),
+    qcfam: (v, el) => { const [fam, fid] = v.split("|"); quickCreate(el, fid, [fam]); },
     close: () => closeLayer(),
     create: () => submitCreate(),
     toast: (v) => toast(v),
@@ -1082,74 +1317,78 @@
     "dump-reset": () => { S.dump.text = ""; S.dump.result = null; render(); },
     "practice-restart": () => { S.practice = null; render(); },
     "tutor-ask": (v) => tutorAsk(v),
-    "file-trash": (v) => { const f = D.files[+v]; f.trashed = true; f.trashedAt = "now"; if (S.route === "files/file/" + v) go("files/trash"); else render(); toast(f.name + " moved to trash"); },
-    "file-restore": (v) => { const f = D.files[+v]; f.trashed = false; if (!D.folders.some(x => x.id === f.folder)) f.folder = null; render(); toast(f.name + " restored"); },
-    "file-purge": (v) => confirmDelete("Delete forever?", `“${D.files[+v].name}” will be removed permanently. This can’t be undone.`, () => { const name = D.files[+v].name; D.files.splice(+v, 1); go("files/trash"); toast(name + " deleted"); }),
-    "trash-empty": () => { const n = D.files.filter(f => f.trashed).length;
-      confirmDelete("Empty trash?", `${n} ${n === 1 ? "file" : "files"} will be removed permanently. This can’t be undone.`, () => { D.files = D.files.filter(f => !f.trashed); render(); toast("Trash emptied"); }); },
+    open: (v) => { const [t, id] = v.split("|"); openItem(t, id); },
+    imenu: (v, el) => { const [t, id] = v.split("|"); itemMenu(el, t, id); },
+    move: (v, el) => { const [t, id] = v.split("|"), x = find(t, id); if (x) folderPicker(el, x.folder || null, fid => moveItem(t, id, fid)); },
+    star: (v) => { const [t, id] = v.split("|"), x = find(t, id); if (x) { x.starred = !x.starred; render(); toast(x.starred ? "Starred" : "Unstarred"); } },
+    trash: (v) => { const [t, id] = v.split("|"), x = find(t, id); if (!x) return; const here = S.route === TYPES[t].route(x); trashItem(t, id); here ? go("files/trash") : render(); },
+    "trash-restore": (v) => { const e = D.trash[+v]; restoreTrash(+v); if (e && e.type === "file" && S.route === "files/file/" + e.item.id) render(); else render(); },
+    "trash-purge": (v) => { const e = D.trash[+v]; if (!e) return; confirmDelete("Delete forever?", `“${TYPES[e.type].name(e.item)}” will be removed permanently. This can’t be undone.`, () => { D.trash.splice(D.trash.indexOf(e), 1); go("files/trash"); toast("Deleted forever"); }); },
+    "trash-empty": () => { const n = D.trash.length;
+      confirmDelete("Empty trash?", `${n} ${n === 1 ? "element" : "elements"} will be removed permanently. This can’t be undone.`, () => { D.trash = []; render(); toast("Trash emptied"); }); },
+    openfolder: (v) => { S.openFolders.add(v); go("folder/" + v); },
+    fmenu: (v, el) => folderMenu(el, v),
+    fsettings: (v) => openFolderSettings(v),
+    ftab: (v) => { S.ftab = v; render(); },
+    "fd-save": () => saveFolderDialog(),
+    "fd-icon": (v) => { S.fdraft.icon = v; delete S.fdraft.emoji; redrawFolderDialog(); },
+    "fd-color": (v) => { S.fdraft.color = v === "none" ? "" : v; redrawFolderDialog(); },
+    "fd-kb": () => { syncFolderDraft(); const d = S.fdraft, parent = folder(d.parent), inh = parent ? kbState(parent).on : false; d.kb = !(d.kb != null ? d.kb : inh); redrawFolderDialog(); },
+    "fd-kb-inherit": () => { syncFolderDraft(); delete S.fdraft.kb; redrawFolderDialog(); },
+    "fd-project": () => { syncFolderDraft(); S.fdraft.project = S.fdraft.project ? null : { target: "", milestones: [] }; redrawFolderDialog(); },
+    "fd-parent": (v, el) => { syncFolderDraft(); folderPicker(el, S.fdraft.parent || null, pid => { S.fdraft.parent = pid; redrawFolderDialog(); }, S.fdraft.id ? subtreeIds(S.fdraft.id) : []); },
+    "fdel-keep": (v) => deleteFolder(v, false),
+    "fdel-all": (v) => deleteFolder(v, true),
+    "reset-data": () => confirmDelete("Reset demo data?", "All your changes in this browser are replaced by the original sample data.", () => { clearTimeout(saveTimer); store.set("data", null); store.set("route", "pin/inbox"); location.reload(); }),
     opensec: (v) => { const [key, route] = v.split("|"); S.closedSecs.delete(key); store.set("closedSecs", [...S.closedSecs]); go(route); },
     "kb-menu": (v, el) => openMenu(el, [
       { icon: "book-marked", label: "Open", run: () => go("files/kb/" + v) }, "-",
       { icon: "trash-2", color: "var(--danger)", label: "Delete collection", run: () => { D.knowledge.splice(D.knowledge.findIndex(x => x.id === v), 1); render(); toast("Collection deleted — its files are untouched"); } }]),
     "kb-remove": (v) => { const [id, name] = v.split("|"), k = D.knowledge.find(x => x.id === id); k.files = k.files.filter(n => n !== name); render(); toast("Removed from " + k.name); },
-    "folder-menu": (v, el) => openMenu(el, [
-      { icon: "folder-open", label: "Open", run: () => go("files/folder/" + v) },
-      { icon: "upload", label: "Upload here", run: () => toast("Upload started") }, "-",
-      { icon: "trash-2", color: "var(--danger)", label: "Delete folder", run: () => { const n = liveFiles().filter(x => x.folder === v).length; if (n) { toast("Move or delete its " + n + " files first"); return; } D.folders.splice(D.folders.findIndex(f => f.id === v), 1); render(); toast("Folder deleted"); } }]),
     "summary-src": (v) => { S.summary = v; render(); },
     "summary-note": () => { const s = summarySource(S.summary), id = "n" + Date.now().toString(36);
-      D.notes.unshift({ id, title: "Summary: " + s.title, body: s.points.map(x => "• " + x).join("\n"), labels: [], updated: "now" }); toast("Saved to Notes"); },
+      D.notes.unshift({ id, title: "Summary: " + s.title, body: s.points.map(x => "• " + x).join("\n"), labels: [], updated: "now", folder: null }); toast("Saved to Notes"); },
     "tutor-send": () => tutorAsk(document.getElementById("tutor-prompt").value),
     "tutor-clear": () => { D.tutorLog.length = 0; render(); },
-    "note-add": () => { const id = "n" + Date.now().toString(36); D.notes.unshift({ id, title: "", body: "", labels: [], updated: "now" }); S.openFolders.add("x-notes"); go("work/notes/" + id); setTimeout(() => { const h = document.querySelector("[data-edit=\"note-title:" + id + "\"]"); h && h.focus(); }); },
+    "note-add": () => createItem("note"),
     "note-labels": (v, el) => { const n = D.notes.find(x => x.id === v); n.labels = n.labels || [];
       openMenu(el, Object.keys(D.labels).map(l => ({ lead: `<span style="width:15px;display:grid;place-items:center"><span style="width:8px;height:8px;border-radius:99px;background:${D.labels[l]}"></span></span>`, label: l, check: n.labels.includes(l),
         run: () => { n.labels = n.labels.includes(l) ? n.labels.filter(x => x !== l) : n.labels.concat(l); n.updated = "now"; render(); } }))); },
-    "note-menu": (v, el) => openMenu(el, [
-      { icon: "file-text", label: "Open", run: () => go("work/notes/" + v) },
-      { icon: "copy-plus", label: "Duplicate", run: () => { const n = D.notes.find(x => x.id === v); D.notes.splice(D.notes.indexOf(n) + 1, 0, Object.assign({}, n, { id: "n" + Date.now().toString(36), title: (n.title || "Untitled") + " (copy)", labels: (n.labels || []).slice(), updated: "now" })); render(); toast("Note duplicated"); } },
-      { icon: "link", label: "Copy link", run: () => toast("Link copied") }, "-",
-      { icon: "trash-2", color: "var(--danger)", label: "Delete", run: () => A["note-del"](v) }]),
+    "note-menu": (v, el) => itemMenu(el, "note", v),
     "note-new-menu": (v, el) => openMenu(el, [
       { icon: "file-text", label: "Blank note", run: () => A["note-add"]() },
       { icon: "layout-template", label: "Meeting notes template", run: () => { A["note-add"](); const n = D.notes[0]; n.title = "Meeting notes " + TODAY.getDate() + " " + MONTHS[TODAY.getMonth()]; n.body = "Attendees:\nAgenda:\nDecisions:\nNext steps:"; render(); } }]),
     "notes-filter": (v, el) => openMenu(el, [{ icon: "list", label: "All labels", check: !S.notesLabel, run: () => { S.notesLabel = null; render(); } }, "-"].concat(Object.keys(D.labels).map(l => ({ lead: `<span style="width:15px;display:grid;place-items:center"><span style="width:8px;height:8px;border-radius:99px;background:${D.labels[l]}"></span></span>`, label: l, check: S.notesLabel === l, run: () => { S.notesLabel = l; render(); } })))),
     "notes-clear": () => { S.notesLabel = null; render(); },
     "notes-more": (v, el) => openMenu(el, [{ icon: "plus", label: "New note", run: () => A["note-add"]() }, { icon: "link", label: "Copy link to collection", run: () => toast("Link copied") }]),
-    "note-folder": (v, el) => folderMenu(el, "note", v, () => { D.notes.find(x => x.id === v).updated = "now"; }),
-    "sticky-folder": (v, el) => folderMenu(el, "sticky", v, () => { D.stickies.find(x => x.id === v).updated = "now"; }),
-    "note-del": (v) => { D.workFolders.forEach(f => f.items = f.items.filter(i => i.note !== v)); D.notes.splice(D.notes.findIndex(n => n.id === v), 1); go("work/notes"); toast("Note deleted"); },
+    "note-del": (v) => { trashItem("note", v); go("work/notes"); },
     "cv-add": (kind) => { const wrap = document.querySelector(".canvas-wrap"), n = curBoard().items.length; addCanvasItem(kind, (wrap ? wrap.scrollLeft : 0) + 60 + n * 24 % 240, (wrap ? wrap.scrollTop : 0) + 60 + n * 24 % 240); },
     "cv-del": (v) => { const b = boardOf(v); b.items.splice(b.items.findIndex(c => c.id === v), 1); render(); },
     openrow: (v) => { const [id, route] = v.split("|"); S.openFolders.add(id); store.set("openFolders", [...S.openFolders]); go(route); },
     "canvas-menu": (v, el) => openMenu(el, [
       { icon: "layout-dashboard", label: "Open", run: () => go("work/canvas/" + v) },
       { icon: "copy-plus", label: "Duplicate", run: () => { const b = D.canvases.find(x => x.id === v), s = Date.now().toString(36);
-        D.canvases.splice(D.canvases.indexOf(b) + 1, 0, { id: "b" + s, name: b.name + " (copy)", updated: "now", items: b.items.map((c, n) => Object.assign({}, c, { id: "cv" + s + n })) }); render(); toast("Canvas duplicated"); } }, "-",
-      { icon: "trash-2", color: "var(--danger)", label: "Delete", run: () => { D.canvases.splice(D.canvases.findIndex(x => x.id === v), 1); render(); toast("Canvas deleted"); } }]),
-    "canvas-add": () => { const id = "b" + Date.now().toString(36); D.canvases.push({ id, name: "Untitled canvas", items: [], updated: "now" }); S.openFolders.add("x-canvas"); go("work/canvas/" + id); },
-    "sticky-add": () => { const id = "s" + Date.now().toString(36); D.stickies.unshift({ id, text: "", color: "amber", updated: "now" }); render(); setTimeout(() => { const el = document.querySelector("[data-edit=\"sticky:" + id + "\"]"); el && el.focus(); }); },
-    "sticky-del": (v) => { D.workFolders.forEach(f => f.items = f.items.filter(i => i.sticky !== v)); D.stickies.splice(D.stickies.findIndex(s => s.id === v), 1); render(); },
+        D.canvases.splice(D.canvases.indexOf(b) + 1, 0, { id: "b" + s, name: b.name + " (copy)", updated: "now", folder: b.folder || null, items: b.items.map((c, n) => Object.assign({}, c, { id: "cv" + s + n })) }); render(); toast("Canvas duplicated"); } },
+      { icon: "folder-input", label: "Move to folder…", run: () => A.move("canvas|" + v, el) }, "-",
+      { icon: "trash-2", color: "var(--danger)", label: "Move to trash", run: () => { trashItem("canvas", v); S.route === "work/canvas/" + v ? go("work/canvas") : render(); } }]),
+    "canvas-add": () => createItem("canvas"),
+    "sticky-add": () => { const id = "s" + Date.now().toString(36); D.stickies.unshift({ id, text: "", color: "amber", updated: "now", folder: null }); render(); setTimeout(() => { const el = document.querySelector("[data-edit=\"sticky:" + id + "\"]"); el && el.focus(); }); },
+    "sticky-del": (v) => { trashItem("sticky", v); render(); },
     "sticky-color": (v, el) => openMenu(el, Object.keys(STICKY_COLORS).map(k => ({ lead: `<span style="width:15px;display:grid;place-items:center"><span style="width:10px;height:10px;border-radius:3px;background:${STICKY_COLORS[k][1]}"></span></span>`, label: k[0].toUpperCase() + k.slice(1), check: D.stickies.find(s => s.id === v).color === k, run: () => { D.stickies.find(s => s.id === v).color = k; render(); } }))),
     tfold: (v) => { S.openFolders.has(v) ? S.openFolders.delete(v) : S.openFolders.add(v); store.set("openFolders", [...S.openFolders]); render(); },
-    newfolder: (scope) => { // scope: "plan" | "work" | "learn" | "files" | "ai"
-      const id = scope[0] + Date.now().toString(36);
-      if (scope === "kb") { D.knowledge.push({ id, name: "New collection", files: [] }); S.openFolders.add(id); S.closedSecs.delete("kbase"); render(); toast("Collection created"); return; }
-      if (scope === "files") { D.folders.push({ id, name: "New folder", icon: "folder" }); S.openFolders.add("fo-" + id); }
-      else { ({ work: D.workFolders, plan: D.planFolders, learn: D.learnFolders, ai: D.aiFolders })[scope].push({ id, name: "New folder", items: [] }); S.openFolders.add(id); }
-      S.closedSecs.delete({ work: "wfold", plan: "pfold", learn: "lfold", files: "folders", ai: "afold" }[scope]); render(); toast("Folder created");
-    },
+    newfolder: (v) => createItem("folder", v || null),
+    newcollection: () => { const id = uid("kb"); D.knowledge.push({ id, name: "New collection", files: [] }); S.openFolders.add(id); S.closedSecs.delete("kbase"); render(); toast("Collection created"); },
     timer: () => {
       const t = S.timer;
       if (t.running) { // log elapsed time (min. 0.1h) on today for the selected work item
-        const h = Math.max(0.1, (Date.now() - t.start) / 36e5), i = issue(t.issue);
-        let e = D.timeEntries.find(x => x.issue === t.issue && x.who === D.me);
-        if (!e) { e = { issue: t.issue, who: D.me, hours: [0, 0, 0, 0, 0, 0, 0] }; D.timeEntries.unshift(e); }
-        e.hours[TODAY_IDX] += h; t.running = false; toast(fmtH(h) + "h logged on " + (i ? i.id : t.issue));
+        const h = Math.max(0.1, (Date.now() - t.start) / 36e5), x = todo(t.todo);
+        let e = D.timeEntries.find(y => y.todo === t.todo);
+        if (!e) { e = { todo: t.todo, hours: [0, 0, 0, 0, 0, 0, 0] }; D.timeEntries.unshift(e); }
+        e.hours[TODAY_IDX] += h; t.running = false; toast(fmtH(h) + "h logged on " + (x ? x.text : "ToDo"));
       } else { t.running = true; t.start = Date.now(); }
       render();
     },
-    "timer-issue": (v, el) => openMenu(el, D.issues.filter(i => i.status !== "done").map(i => ({ icon: status(i.status).icon, color: status(i.status).color, label: i.id + "  " + i.title, check: S.timer.issue === i.id, run: () => { S.timer.issue = i.id; render(); } }))),
+    "timer-todo": (v, el) => openMenu(el, D.todos.filter(t => !t.done).map(t => ({ icon: "circle", label: t.text, check: S.timer.todo === t.id, run: () => { S.timer.todo = t.id; render(); } }))),
     "asst-toggle": () => { S.asst.open = !S.asst.open; render(); if (S.asst.open) focusAsst(); },
     "asst-send": () => askPanel(document.getElementById("asst-prompt").value),
     "asst-ask": (v) => askPanel(v),
@@ -1161,31 +1400,22 @@
       { icon: "maximize-2", label: "Open as full page", run: () => { const id = S.asst.chatId; S.asst.open = false; go(id ? "ai/" + id : "ai/new"); } },
       { icon: "eraser", label: "Clear conversation", run: () => { const c = D.chats.find(x => x.id === S.asst.chatId); if (c) c.log = []; render(); } }, "-",
       { icon: "x", label: "Close", run: () => { S.asst.open = false; render(); } }]),
-    todo: (v) => { const t = D.todos.find(x => x.id === +v); t.done = !t.done; render(); },
-    "todo-del": (v) => { D.todos.splice(D.todos.findIndex(x => x.id === +v), 1); render(); },
-    inbox: (v) => { const m = D.inbox.find(x => x.id === +v); m.unread = false; S.selInbox = m.id; render(); },
+    todo: (v) => { const t = todo(v); if (t) { t.done = !t.done; render(); } },
+    "todo-del": (v) => { trashItem("todo", v); render(); },
+    "ib-open": (v) => { const m = D.inbox.find(x => x.id === +v); m.unread = false; if (m.todo) go("pin/todos"); else if (m.link) go(m.link); else render(); },
+    "ib-read": (v) => { const m = D.inbox.find(x => x.id === +v); m.unread = !m.unread; render(); },
+    "ib-done": (v) => { const m = D.inbox.find(x => x.id === +v); m.done = true; m.unread = false; render(); toast("Notification cleared"); },
+    "ib-restore": () => { D.inbox.forEach(m => m.done = false); render(); },
     readall: () => { D.inbox.forEach(m => m.unread = false); render(); toast("All notifications marked read"); },
     pref: (k) => { S.prefs[k] = !S.prefs[k]; render(); },
     savews: () => { const v = document.getElementById("wsname").value.trim(); if (v) { D.workspace.name = v; D.workspace.initial = v[0].toUpperCase(); } render(); toast("Workspace saved"); },
     ask: (v) => ask(v),
     send: () => { const p = document.getElementById("prompt"); ask(p.value); },
-    status: (v, el) => statusMenu(el, issue(v)),
-    prio: (v, el) => prioMenu(el, issue(v)),
-    assignee: (v, el) => { const i = issue(v); whoMenu(el, i.who, n => { i.who = n; render(); }); },
-    label: (v, el) => { const i = issue(v); labelMenu(el, i.label, l => { i.label = l; render(); }); },
-    issuemenu: (v, el) => openMenu(el, [
-      { icon: "copy", label: "Copy ID", run: () => toast(v + " copied") },
-      { icon: "circle-check", label: "Mark as done", run: () => { issue(v).status = "done"; render(); } }, "-",
-      { icon: "trash-2", color: "var(--danger)", label: "Delete", run: () => { const i = issue(v); D.issues.splice(D.issues.indexOf(i), 1); go("work/project/" + i.project); toast(v + " deleted"); } }]),
-    filter: (v, el) => openMenu(el, [{ icon: "list", label: "All work items", check: !S.filterMine, run: () => { S.filterMine = false; render(); } }, { icon: "user-round", label: "Assigned to me", check: S.filterMine, run: () => { S.filterMine = true; render(); } }]),
-    display: (v, el) => openMenu(el, [{ icon: "circle-dot", label: "Group by status", check: S.groupBy === "status", run: () => { S.groupBy = "status"; render(); } }, { icon: "signal-high", label: "Group by priority", check: S.groupBy === "priority", run: () => { S.groupBy = "priority"; render(); } }]),
     wsmenu: (v, el) => openMenu(el, [{ lead: `<span class="ws-logo" style="width:16px;height:16px;font-size:9px;border-radius:4px">${D.workspace.initial}</span>`, label: D.workspace.name, check: true }, "-", { icon: "settings", label: "Workspace settings", run: () => go("settings/general") }, { icon: "users", label: "Invite members", run: () => go("settings/members") }, "-", { icon: "panel-left", label: "Collapse sidebar", kbd: ["["], run: () => A.collapse() }]),
     usermenu: (v, el) => openMenu(el, [{ icon: "user-round", label: "Profile", run: () => go("settings/profile") }, { icon: "palette", label: "Preferences", run: () => go("settings/preferences") }, { icon: "keyboard", label: "Keyboard shortcuts", run: openShortcuts }, "-", { icon: "log-out", label: "Sign out", run: () => toast("Signed out (prototype)") }]),
-    "d-status": (v, el) => openMenu(el, D.statuses.map(s => ({ icon: s.icon, color: s.color, label: s.name, check: S.draft.status === s.id, run: () => { S.draft.status = s.id; refreshDraftChips(); } }))),
     "d-prio": (v, el) => openMenu(el, D.priorities.map(p => ({ icon: p.icon, color: p.color, label: p.name, check: S.draft.prio === p.id, run: () => { S.draft.prio = p.id; refreshDraftChips(); } }))),
-    "d-who": (v, el) => whoMenu(el, S.draft.who, n => { S.draft.who = n; refreshDraftChips(); }),
-    "d-label": (v, el) => labelMenu(el, S.draft.label, l => { S.draft.label = l; refreshDraftChips(); }),
-    "d-project": (v, el) => openMenu(el, D.projects.map(p => ({ lead: `<span style="width:15px;text-align:center">${p.emoji}</span>`, label: p.name, check: S.draft.project === p.id, run: () => { S.draft.project = p.id; refreshDraftChips(); } }))),
+    "d-due": (v, el) => openMenu(el, [["Today", 0], ["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7]].map(([l, n]) => ({ icon: "calendar", label: l + "  ·  " + plusDays(n), check: S.draft.due === plusDays(n), run: () => { S.draft.due = plusDays(n); refreshDraftChips(); } })).concat(["-", { icon: "calendar-x", label: "No date", check: !S.draft.due, run: () => { S.draft.due = null; refreshDraftChips(); } }])),
+    "d-folder": (v, el) => folderPicker(el, S.draft.folder, fid => { S.draft.folder = fid; refreshDraftChips(); }),
     "d-more": (v, el) => { S.draft.more = !S.draft.more; el.classList.toggle("on", S.draft.more); },
   };
 
@@ -1198,6 +1428,38 @@
     e.stopPropagation();
     const a = el.dataset.a, k = a.indexOf(":"), name = k < 0 ? a : a.slice(0, k), val = k < 0 ? undefined : a.slice(k + 1);
     A[name] && A[name](val, el);
+  });
+
+  // right-click on any element or folder opens its actions menu (text fields keep the browser menu)
+  document.addEventListener("contextmenu", e => {
+    const el = e.target.closest("[data-drag]");
+    if (!el || e.target.closest("[contenteditable='true'],input,textarea")) return;
+    e.preventDefault();
+    const [t, id] = el.dataset.drag.split(":"), at = { getBoundingClientRect: () => ({ left: e.clientX, top: e.clientY, bottom: e.clientY }) };
+    t === "folder" ? folderMenu(at, id) : itemMenu(at, t, id);
+  });
+  // drag elements or folders onto a folder row (sidebar, folder page, timelines) to move them there
+  let dragKey = null;
+  document.addEventListener("dragstart", e => {
+    const el = e.target.closest && e.target.closest("[data-drag]");
+    if (!el || el.getAttribute("draggable") !== "true") return;
+    dragKey = el.dataset.drag; e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", dragKey); } catch (err) {}
+    setTimeout(() => el.classList.add("drag-src"));
+  });
+  document.addEventListener("dragend", () => { dragKey = null; document.querySelectorAll(".drag-src,.drop-hi").forEach(x => x.classList.remove("drag-src", "drop-hi")); });
+  document.addEventListener("dragover", e => {
+    const el = dragKey && e.target.closest("[data-drop]"); if (!el) return;
+    const [t, id] = dragKey.split(":"); if (t === "folder" && subtreeIds(id).includes(el.dataset.drop)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".drop-hi").forEach(x => x !== el && x.classList.remove("drop-hi")); el.classList.add("drop-hi");
+  });
+  document.addEventListener("dragleave", e => { const el = e.target.closest && e.target.closest("[data-drop]"); if (el && !el.contains(e.relatedTarget)) el.classList.remove("drop-hi"); });
+  document.addEventListener("drop", e => {
+    const el = dragKey && e.target.closest("[data-drop]"); if (!el) return;
+    e.preventDefault();
+    const [t, id] = dragKey.split(":"), fid = el.dataset.drop || null; dragKey = null;
+    t === "folder" ? moveFolder(id, fid) : moveItem(t, id, fid);
   });
 
   // canvas: add a card where you double-click, drag cards by their handle (moves the element directly, saves on release)
@@ -1230,8 +1492,6 @@
     const el = e.target.closest && e.target.closest("[data-edit]");
     if (!el) return;
     const [kind, id, n] = el.dataset.edit.split(":"), text = el.innerText.trim();
-    if (kind === "issue-title" && text) issue(id).title = text;
-    if (kind === "issue-desc") issue(id).desc = text;
     if (kind === "page-title" && text) D.pages.find(p => p.id === id).title = text;
     if (kind === "page-body") D.pages.find(p => p.id === id).body[+n] = text;
     if (kind === "note-title" || kind === "note-body") { // update the list row in place (no re-render, so the next click still lands)
@@ -1246,6 +1506,7 @@
       document.querySelectorAll(`.sidebar [data-a="go:work/stickies/${id}"] .lbl`).forEach(el => el.textContent = stickyLabel(s));
     }
     const sb = document.querySelector(".sidebar"); if (sb && kind === "page-title") { const st = sb.scrollTop; render(); document.querySelector(".sidebar").scrollTop = st; }
+    save();
   });
 
   document.addEventListener("keydown", e => {
@@ -1253,12 +1514,13 @@
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); layer ? closeLayer() : openPalette(); return; }
     if (e.key === "Escape") { if (menuEl) closeMenu(); else if (layer) closeLayer(); else if (typing) e.target.blur(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && layer && S.draft && layer.querySelector("#dtitle")) { submitCreate(); return; }
+    if (e.target.id === "fd-name" && e.key === "Enter") { e.preventDefault(); saveFolderDialog(); return; }
     if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(e.target.value); return; }
     if (e.target.id === "tutor-prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); tutorAsk(e.target.value); return; }
     if (e.target.id === "asst-prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askPanel(e.target.value); return; }
     if (e.target.id === "dtitle" && e.key === "Enter") { e.preventDefault(); submitCreate(); return; }
     if (e.target.id === "todo-new" && e.key === "Enter" && e.target.value.trim()) {
-      D.todos.unshift({ id: Date.now(), text: e.target.value.trim() }); render();
+      D.todos.unshift({ id: uid("t"), text: e.target.value.trim(), prio: 0, folder: null }); render();
       const inp = document.getElementById("todo-new"); inp && inp.focus(); return;
     }
     if (typing || layer || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1270,7 +1532,7 @@
       const n = "abcd".indexOf(e.key.toLowerCase()); if (n >= 0 && S.practice.picked === null && S.practice.qs[S.practice.i]) { A.pick(n); return; }
       if (e.key === "Enter" && S.practice.picked !== null) { A["practice-next"](); return; }
     }
-    if (e.key === "c") { e.preventDefault(); openCreate("issue"); }
+    if (e.key === "c") { e.preventDefault(); quickCreate(); }
     else if (e.key === "a") { e.preventDefault(); A["asst-toggle"](); }
     else if (e.key === "[") { S.collapsed = !S.collapsed; render(); }
     else if (/^[1-5]$/.test(e.key)) A.product(["plan", "work", "wiki", "files", "ai"][+e.key - 1]);
