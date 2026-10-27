@@ -165,4 +165,12 @@ window.DATA = {
     { id: "c1", title: "Summarise this week", log: [], folder: null },
     { id: "c2", title: "Draft release notes", log: [], folder: "web" },
   ],
+  // calendar: dates are ISO days ("2026-10-13"), times are minutes after midnight (570 = 09:30)
+  // rrule: { freq: daily|weekly|monthly|yearly, interval, days (0 = Sun … 6 = Sat, weekly only), until, count }
+  // type: event | focus; todo links a time block to a ToDo; org is set on events someone else invited me to, rsvp is my answer there (yes/no/maybe)
+  calendars: [
+    { id: "cal-me", name: "Max Mann", color: "blue" },
+  ],
+  calPrefs: { weekStart: 1, weekends: true, weekNums: false, h12: false, duration: 60, dimPast: true, declined: true, tasks: true, doneTasks: true, workStart: 480, workEnd: 1080, reminder: 10, tasksHidden: false },
+  events: [],
 };

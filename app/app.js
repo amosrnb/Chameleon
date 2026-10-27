@@ -10,9 +10,7 @@
   };
   // all data is kept in the browser so edits survive a reload; a newer data.js version replaces older saves
   const saved = store.get("data", null);
-  // v2 → v3 only added the calendar, so older saves keep their edits and get the sample calendar
-  if (saved && saved.version === 2) ["calendars", "calPrefs", "events"].forEach(k => saved[k] = window.DATA[k]), saved.version = 3;
-  const D = saved && saved.version === window.DATA.version ? saved : window.DATA;
+    const D = saved && saved.version === window.DATA.version ? saved : window.DATA;
   let saveTimer = 0;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set("data", D), 150); };
 
@@ -820,17 +818,7 @@
           <div class="card"><div class="an-title">Hours logged this week</div>${bars(tops.map(f => ({ name: f.name, lead: folderIcon(f, 13), v: hoursIn(f) })), "h")}</div>
         </div></div></div>`;
     }
-    if (page === "calendar") {
-      // October 2026, weeks start on Monday; dated ToDos show on their day
-      const offset = (new Date(2026, 9, 1).getDay() + 6) % 7, cells = [];
-      for (let n = 0; n < 35; n++) {
-        const d = new Date(2026, 9, n - offset + 1), key = String(d.getDate()).padStart(2, "0") + " " + MONTHS[d.getMonth()];
-        const due = D.todos.filter(t => t.due === key).map(t => `<span class="cal-it" data-a="go:pin/todos" data-drag="todo:${t.id}" style="border-left-color:${t.done ? "var(--success)" : dayDiff(t.due) < 0 ? "var(--danger)" : "var(--text-tertiary)"}${t.done ? ";color:var(--text-tertiary)" : ""}">${esc(t.text)}</span>`).join("");
-        cells.push(`<div class="cal-cell${d.getMonth() === 9 ? "" : " out"}${+d === +TODAY ? " today" : ""}"><span class="cal-d">${d.getDate()}</span>${due}</div>`);
-      }
-      return header("Calendar", { lead: ic("calendar", 16, "var(--text-secondary)"), mid: `<span class="mono" style="color:var(--text-tertiary);margin-left:6px">October 2026</span>` }) +
-        `<div class="scroll"><div class="cal">${WEEKDAYS.map(w => `<div class="cal-w label-mono">${w}</div>`).join("")}${cells.join("")}</div></div>`;
-    }
+    if (page === "calendar") return viewCalendar();
     return viewPlan(["plan", "timelines"]);
   }
   function viewFiles(parts) {
@@ -937,7 +925,7 @@
   }
   function viewTodos() {
     const open = D.todos.filter(t => !t.done), done = D.todos.filter(t => t.done);
-    const row = t => { const pr = prio(t.prio); return `<div class="todo${t.done ? " done" : ""}" data-drag="todo:${t.id}" draggable="true"><button class="todo-ck" data-a="todo:${t.id}" role="checkbox" aria-checked="${!!t.done}" title="${t.done ? "Mark as open" : "Mark as done"}">${t.done ? ic("check", 12) : ""}</button><span class="todo-t">${esc(t.text)}</span>${pr.id ? `<span title="${pr.name}">${ic(pr.icon, 13, pr.color)}</span>` : ""}${folderChip("todo", t)}${t.due ? `<span class="mono" style="color:${!t.done && dayDiff(t.due) < 0 ? "var(--danger)" : "var(--text-tertiary)"}">${t.due}</span>` : ""}<button class="ib sm todo-x" data-a="imenu:todo|${t.id}" title="More">${ic("ellipsis", 13)}</button></div>`; };
+    const row = t => { const pr = prio(t.prio); return `<div class="todo${t.done ? " done" : ""}" data-drag="todo:${t.id}" draggable="true"><button class="todo-ck" data-a="todo:${t.id}" role="checkbox" aria-checked="${!!t.done}" title="${t.done ? "Mark as open" : "Mark as done"}">${t.done ? ic("check", 12) : ""}</button><span class="todo-t" data-a="todo-edit:${t.id}" title="Edit">${esc(t.text)}</span>${pr.id ? `<span title="${pr.name}">${ic(pr.icon, 13, pr.color)}</span>` : ""}${folderChip("todo", t)}${t.dur ? `<span class="mono" style="color:var(--text-tertiary)" title="Duration">${fmtDur(t.dur)}</span>` : ""}${t.due ? `<span class="mono" style="color:${!t.done && dayDiff(t.due) < 0 ? "var(--danger)" : "var(--text-tertiary)"}">${t.due}</span>` : ""}<button class="ib sm todo-x" data-a="imenu:todo|${t.id}" title="More">${ic("ellipsis", 13)}</button></div>`; };
     return header("ToDos", { lead: ic("list-checks", 16, "var(--text-secondary)"), count: open.length, actions: `<button class="btn sm primary" data-a="newtodo">${ic("plus", 13)}New ToDo</button>` }) +
       `<div class="scroll"><div class="todos">
         <div class="todo add">${ic("plus", 14, "var(--text-tertiary)")}<input id="todo-new" placeholder="Add a to-do…" autocomplete="off"></div>
@@ -974,6 +962,897 @@
     return header("Settings", { lead: ic("settings", 16, "var(--text-secondary)") }) + `<div class="scroll"><div class="set">${body}</div></div>`;
   }
 
+  /* ---------- calendar: day / week / 4 days / month / year / schedule, recurring events, drag to create, move and resize ---------- */
+  const CAL_COLORS = { blue: "var(--blue-500)", violet: "var(--violet-500)", green: "var(--green-500)", amber: "var(--amber-500)", red: "var(--red-500)", ice: "var(--ice-300)", copper: "var(--copper-300)", graphite: "var(--kestrel-600)" };
+  const CAL_COLOR_NAMES = { blue: "Peacock", violet: "Lavender", green: "Sage", amber: "Tangerine", red: "Tomato", ice: "Ice", copper: "Copper", graphite: "Graphite" };
+  const CAL_VIEWS = [["day", "Day", "D", "calendar-1"], ["week", "Week", "W", "calendar-range"], ["month", "Month", "M", "calendar-days"], ["year", "Year", "Y", "layout-grid"], ["schedule", "Schedule", "S", "list"], ["4day", "4 days", "X", "columns-3"]];
+  const DAYS_LONG = "Sunday Monday Tuesday Wednesday Thursday Friday Saturday".split(" ");
+  const MONTHS_LONG = "January February March April May June July August September October November December".split(" ");
+  const REM_OPTS = [0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080];
+  const HOUR = 48; // px per hour in the day / week grid
+  // older saves may miss the calendar or newer preferences; the holiday calendar is always there (its events are computed)
+  D.events = D.events || []; D.calendars = D.calendars && D.calendars.length ? D.calendars : [{ id: "cal-me", name: D.me, color: "blue" }];
+  D.calPrefs = Object.assign({ weekStart: 1, weekends: true, weekNums: false, h12: false, duration: 60, dimPast: true, declined: true, doneTasks: true, tasksHidden: false, workStart: 480, workEnd: 1080, reminder: 10 }, D.calPrefs);
+  if (!D.calendars.some(c => c.id === "cal-hol")) D.calendars.push({ id: "cal-hol", name: "Holidays in Germany", color: "red", readonly: true, other: true });
+  const CP = () => D.calPrefs;
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const fromIso = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const addIso = (s, n) => iso(addD(fromIso(s), n));
+  const isoDiff = (a, b) => Math.round((fromIso(b) - fromIso(a)) / 864e5);
+  const TODAY_ISO = iso(TODAY);
+  S.cal = { view: store.get("calView", "week"), date: TODAY_ISO, mini: null, q: "", ghost: null, scroll: true, ed: null, custom: false, cdraft: null, scopeCb: null };
+  const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
+  const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = String(m % 60).padStart(2, "0"); return CP().h12 ? `${h % 12 || 12}${m % 60 ? ":" + mm : ""}${h < 12 ? "am" : "pm"}` : `${String(h).padStart(2, "0")}:${mm}`; };
+  const fmtLong = s => { const d = fromIso(s); return `${DAYS_LONG[d.getDay()]}, ${d.getDate()} ${MONTHS_LONG[d.getMonth()]}${d.getFullYear() !== TODAY.getFullYear() ? " " + d.getFullYear() : ""}`; };
+  const fmtShort = s => { const d = fromIso(s); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+  const minToInput = m => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  const inputToMin = v => { const [h, m] = (v || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  const tzLabel = () => { const o = -new Date().getTimezoneOffset(), a = Math.abs(o); return (o < 0 ? "-" : "+") + String(Math.floor(a / 60)).padStart(2, "0") + (a % 60 ? ":" + String(a % 60).padStart(2, "0") : ""); };
+  const dueIso = t => t.due ? iso(parseDue(t.due)) : null;
+  const isoWeek = d => { const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), day = x.getUTCDay() || 7; x.setUTCDate(x.getUTCDate() + 4 - day); return Math.ceil(((x - Date.UTC(x.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7); };
+  const remText = m => m === 0 ? "At start" : m % 10080 === 0 ? `${m / 10080} week${m > 10080 ? "s" : ""} before` : m % 1440 === 0 ? `${m / 1440} day${m > 1440 ? "s" : ""} before` : m % 60 === 0 ? `${m / 60} hour${m > 60 ? "s" : ""} before` : `${m} minutes before`;
+  const calOf = id => D.calendars.find(c => c.id === id);
+  const calCol = c => CAL_COLORS[(c || {}).color] || CAL_COLORS.graphite;
+  const evColor = ev => CAL_COLORS[ev.color] || calCol(calOf(ev.cal));
+  const evLocked = ev => !!(calOf(ev.cal) || {}).readonly;
+  const evIcon = ev => ev.todo ? ((todo(ev.todo) || {}).done ? "circle-check" : "circle") : ev.type === "focus" ? "headphones" : "";
+  const evTitle = ev => esc(ev.title || "(No title)");
+  const isBar = o => o.ev.allDay || o.end !== o.date; // all-day and multi-day events sit in the all-day row
+  const weekStartOf = d => addD(d, -((d.getDay() - CP().weekStart + 7) % 7));
+  const showDay = d => CP().weekends || d.getDay() % 6 !== 0;
+  const defCal = () => (D.calendars.find(c => !c.readonly && !c.hidden) || D.calendars.find(c => !c.readonly) || {}).id;
+
+  // public holidays in Germany, computed per year (Easter after the anonymous Gregorian algorithm)
+  const holCache = {};
+  function holidays(y) {
+    if (holCache[y]) return holCache[y];
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const easter = new Date(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1), ea = n => iso(addD(easter, n));
+    return holCache[y] = [[`${y}-01-01`, "New Year's Day"], [ea(-2), "Good Friday"], [ea(1), "Easter Monday"], [`${y}-05-01`, "Labour Day"], [ea(39), "Ascension Day"], [ea(50), "Whit Monday"], [`${y}-10-03`, "German Unity Day"], [`${y}-12-25`, "Christmas Day"], [`${y}-12-26`, "Boxing Day"]]
+      .map(([date, title]) => ({ id: "hol-" + date, title, cal: "cal-hol", date, allDay: true }));
+  }
+  const eventsFor = (from, to) => { const out = D.events.slice(); for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) out.push(...holidays(y)); return out; };
+
+  // start days of an event's occurrences that overlap [from, to] (ISO, inclusive)
+  function occurs(ev, from, to) {
+    const span = ev.endDate ? isoDiff(ev.date, ev.endDate) : 0, r = ev.rrule, out = [];
+    const hit = s => s <= to && addIso(s, span) >= from;
+    if (!r) return hit(ev.date) ? [ev.date] : out;
+    const start = fromIso(ev.date), lim = fromIso(to), ex = new Set(ev.exdates || []), iv = Math.max(1, r.interval || 1);
+    let n = 0;
+    const push = d => { const s = iso(d); if ((r.until && s > r.until) || (r.count && n >= r.count)) return false; n++; if (!ex.has(s) && hit(s)) out.push(s); return true; };
+    if (r.freq === "daily") { for (let d = start; d <= lim; d = addD(d, iv)) if (!push(d)) break; }
+    else if (r.freq === "weekly") {
+      const days = (r.days && r.days.length ? r.days : [start.getDay()]).slice().sort();
+      outer: for (let w = addD(start, -start.getDay()); w <= lim; w = addD(w, 7 * iv)) for (const k of days) { const d = addD(w, k); if (d < start) continue; if (d > lim || !push(d)) break outer; }
+    } else { // monthly / yearly on the same day of the month; months without that day are skipped
+      const step = r.freq === "yearly" ? 12 * iv : iv;
+      for (let k = 0; ; k += step) { const d = new Date(start.getFullYear(), start.getMonth() + k, start.getDate()); if (d > lim) break; if (d.getDate() !== start.getDate()) continue; if (!push(d)) break; }
+    }
+    return out;
+  }
+  // visible occurrences in [from, to], sorted: bars first, then by start time
+  function calOccs(from, to) {
+    const P = CP(), out = [];
+    eventsFor(from, to).forEach(ev => {
+      const c = calOf(ev.cal); if (!c || c.hidden || (ev.rsvp === "no" && !P.declined)) return;
+      const span = ev.endDate ? isoDiff(ev.date, ev.endDate) : 0;
+      occurs(ev, from, to).forEach(date => out.push({ ev, date, end: addIso(date, span), key: ev.id + "@" + date }));
+    });
+    return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || (isBar(b) - isBar(a)) || ((a.ev.start || 0) - (b.ev.start || 0)));
+  }
+  const calTasks = (from, to) => CP().tasksHidden ? [] : D.todos.filter(t => t.due && (CP().doneTasks || !t.done) && !planned(t)).map(t => ({ t, date: dueIso(t) })).filter(x => x.date >= from && x.date <= to);
+  function occFind(key) {
+    const [id, date] = key.split("@"), ev = id.startsWith("hol-") ? holidays(+id.slice(4, 8)).find(h => h.id === id) : D.events.find(e => e.id === id);
+    return ev ? { ev, date, end: addIso(date, ev.endDate ? isoDiff(ev.date, ev.endDate) : 0), key } : null;
+  }
+  const isPast = o => o.end < TODAY_ISO || (o.end === TODAY_ISO && !o.ev.allDay && (o.ev.end || 0) <= nowMin());
+  const dimCls = o => (isPast(o) && CP().dimPast ? " past" : "") + (o.ev.rsvp === "no" ? " declined" : o.ev.rsvp === "maybe" ? " maybe" : "");
+  function repText(r, date) {
+    if (!r) return "Does not repeat";
+    const d = fromIso(date), iv = r.interval || 1, days = (r.days && r.days.length ? r.days : [d.getDay()]).slice().sort();
+    let s = iv === 1 ? { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Annually" }[r.freq] : `Every ${iv} ${{ daily: "days", weekly: "weeks", monthly: "months", yearly: "years" }[r.freq]}`;
+    if (r.freq === "weekly") s += days.join() === "1,2,3,4,5" ? " on weekdays" : " on " + days.map(k => DAYS_LONG[k]).join(", ");
+    if (r.freq === "monthly") s += " on day " + d.getDate();
+    if (r.freq === "yearly") s += ` on ${d.getDate()} ${MONTHS_LONG[d.getMonth()]}`;
+    return s + (r.count ? `, ${r.count} times` : r.until ? ", until " + fmtShort(r.until) + " " + r.until.slice(0, 4) : "");
+  }
+  function occWhen(o) {
+    const ev = o.ev;
+    if (ev.allDay) return o.end === o.date ? fmtLong(o.date) : `${fmtLong(o.date)} – ${fmtLong(o.end)}`;
+    if (o.end !== o.date) return `${fmtLong(o.date)}, ${fmtT(ev.start)} – ${fmtLong(o.end)}, ${fmtT(ev.end)}`;
+    return `${fmtLong(o.date)} · ${fmtT(ev.start)} – ${fmtT(ev.end)}`;
+  }
+  // timed events of mine that overlap the draft (shown in the editor); guests are busy if they are on such an event
+  const overlaps = (d, pred = () => true) => d.allDay || (d.endDate && d.endDate !== d.date) ? []
+    : calOccs(d.date, d.date).filter(o => o.ev.id !== d.id && !isBar(o) && o.ev.start < d.end && o.ev.end > d.start && o.ev.rsvp !== "no" && o.ev.busy !== "free" && pred(o));
+
+  /* the days shown as columns, the header label and paging */
+  function calCols() {
+    const a = fromIso(S.cal.date), v = S.cal.view;
+    if (v === "day") return [a];
+    if (v === "4day") return [0, 1, 2, 3].map(n => addD(a, n));
+    const f = weekStartOf(a); return [0, 1, 2, 3, 4, 5, 6].map(n => addD(f, n)).filter(showDay);
+  }
+  function calLabel() {
+    const a = fromIso(S.cal.date), v = S.cal.view;
+    if (S.cal.q.trim()) return "Search";
+    if (v === "year") return String(a.getFullYear());
+    if (v === "month") return `${MONTHS_LONG[a.getMonth()]} ${a.getFullYear()}`;
+    if (v === "day") return `${DAYS_LONG[a.getDay()]}, ${a.getDate()} ${MONTHS_LONG[a.getMonth()]} ${a.getFullYear()}`;
+    if (v === "schedule") return `From ${fmtShort(S.cal.date)} ${a.getFullYear()}`;
+    const cols = calCols(), f = cols[0], l = cols[cols.length - 1];
+    return f.getMonth() === l.getMonth() ? `${f.getDate()} – ${l.getDate()} ${MONTHS[l.getMonth()]} ${l.getFullYear()}` : `${f.getDate()} ${MONTHS[f.getMonth()]}${f.getFullYear() !== l.getFullYear() ? " " + f.getFullYear() : ""} – ${l.getDate()} ${MONTHS[l.getMonth()]} ${l.getFullYear()}`;
+  }
+  function calStep(dir) {
+    const a = fromIso(S.cal.date), v = S.cal.view;
+    if (v === "month") S.cal.date = iso(new Date(a.getFullYear(), a.getMonth() + dir, 1));
+    else if (v === "year") S.cal.date = iso(new Date(a.getFullYear() + dir, 0, 1));
+    else S.cal.date = iso(addD(a, dir * { day: 1, "4day": 4, week: 7, schedule: 7 }[v]));
+    S.cal.mini = null; closeCalPop(true); render();
+  }
+  function setView(v) { S.cal.view = v; S.cal.q = ""; S.cal.scroll = true; store.set("calView", v); closeCalPop(true); render(); }
+  function calGoto(s, view) { S.cal.date = s; S.cal.mini = null; S.cal.q = ""; if (view) { S.cal.view = view; store.set("calView", view); S.cal.scroll = true; } closeCalPop(true); render(); }
+
+  /* event pieces */
+  function occBlock(x) {
+    const o = x.o, ev = o.ev, short = x.e - x.s < 45, icon = evIcon(ev);
+    return `<div class="cal-ev${short ? " short" : ""}${dimCls(o)}" data-occ="${o.key}" style="${evPos(x)};--c:${evColor(ev)}" title="${evTitle(ev)}"><b>${icon ? ic(icon, 11) : ""}${evTitle(ev)}</b><span>${fmtT(ev.start)} – ${fmtT(ev.end)}${ev.loc && !short ? ", " + esc(ev.loc) : ""}</span>${evLocked(ev) ? "" : '<i class="cal-rs"></i>'}</div>`;
+  }
+  function occChip(o, style = "", bar = false) {
+    const ev = o.ev, timed = !ev.allDay && o.end === o.date, icon = evIcon(ev);
+    return `<div class="cal-chip ${bar || !timed ? "cal-bar" : "dot"}${dimCls(o)}" data-occ="${o.key}" style="${style};--c:${evColor(ev)}" title="${evTitle(ev)}">${timed ? `<i class="cal-dot"></i><span class="cal-tm">${fmtT(ev.start)}</span>` : icon ? ic(icon, 11) : ""}<span class="cal-tt">${evTitle(ev)}</span></div>`;
+  }
+  const taskChip = (t, style = "") => `<div class="cal-chip task${t.done ? " done" : ""}" data-task="${t.id}" style="${style}" title="${esc(t.text)}">${ic(t.done ? "circle-check" : "circle", 12)}<span class="cal-tt">${esc(t.text)}</span></div>`;
+  const evPos = x => `top:${x.s / 60 * HOUR}px;height:${(x.e - x.s) / 60 * HOUR - 2}px;left:calc(${x.col / x.ncol * 100}% + 1px);width:calc(${100 / x.ncol}% - 4px)`;
+  // overlapping events in one day column share its width side by side
+  function layoutDay(list) {
+    list.sort((a, b) => a.s - b.s || b.e - a.e);
+    let group = [], end = -1;
+    const flush = () => { const cols = []; group.forEach(o => { let c = cols.findIndex(e => e <= o.s); if (c < 0) { c = cols.length; cols.push(0); } cols[c] = o.e; o.col = c; }); group.forEach(o => o.ncol = cols.length); group = []; };
+    list.forEach(o => { if (o.s >= end) { flush(); end = -1; } group.push(o); end = Math.max(end, o.e); });
+    flush();
+  }
+
+  /* views */
+  function calWeekView() {
+    const P = CP(), cols = calCols(), n = cols.length, from = iso(cols[0]), to = iso(cols[n - 1]), g = S.cal.ghost;
+    const occs = calOccs(from, to), tasks = calTasks(from, to), colIdx = {}; cols.forEach((d, i) => colIdx[iso(d)] = i);
+    const idxFrom = s => { for (let i = 0; i < n; i++) if (iso(cols[i]) >= s) return i; return n; };
+    const idxTo = s => { for (let i = n - 1; i >= 0; i--) if (iso(cols[i]) <= s) return i; return -1; };
+    // all-day row: bars packed into lanes
+    const bars = occs.filter(isBar).map(o => ({ o, a: idxFrom(o.date), b: idxTo(o.end) })).filter(x => x.a <= x.b);
+    tasks.forEach(x => { const i = colIdx[x.date]; if (i != null) bars.push({ task: x.t, a: i, b: i }); });
+    if (g && g.allDay) { const a = idxFrom(g.date), b = idxTo(g.end || g.date); if (a <= b) bars.push({ ghost: true, a, b }); }
+    bars.sort((x, y) => x.a - y.a || (y.b - y.a) - (x.b - x.a));
+    const lanes = []; bars.forEach(x => { let l = lanes.findIndex(e => e < x.a); if (l < 0) { l = lanes.length; lanes.push(-1); } lanes[l] = x.b; x.lane = l; });
+    const bar = x => { const st = `grid-column:${x.a + 1}/${x.b + 2};grid-row:${x.lane + 1}`; return x.ghost ? `<div class="cal-chip cal-bar ghost" style="${st}">${esc(g.title || "(No title)")}</div>` : x.task ? taskChip(x.task, st) : occChip(x.o, st, true); };
+    const head = cols.map(d => { const s = iso(d); return `<button class="cal-dh${s === TODAY_ISO ? " today" : ""}" data-a="cal-open:${s}" title="Open day"><span class="dow label-mono">${WEEKDAYS[(d.getDay() + 6) % 7]}</span><span class="dn">${d.getDate()}</span></button>`; }).join("");
+    const hours = Array.from({ length: 23 }, (_, h) => `<div class="cal-hr" style="top:${(h + 1) * HOUR}px">${fmtT((h + 1) * 60)}</div>`).join("");
+    const body = cols.map(d => {
+      const s = iso(d), list = occs.filter(o => !isBar(o) && o.date === s).map(o => ({ o, s: o.ev.start, e: Math.max(o.ev.end, o.ev.start + 20) }));
+      if (g && !g.allDay && g.date === s) list.push({ ghost: true, s: g.start, e: Math.max(g.end, g.start + 20) });
+      layoutDay(list);
+      const evs = list.map(x => x.ghost ? `<div class="cal-ev ghost" style="${evPos(x)}"><b>${esc(g.title || "(No title)")}</b><span>${fmtT(g.start)} – ${fmtT(g.end)}</span></div>` : occBlock(x)).join("");
+      const off = `<div class="cal-off" style="top:0;height:${P.workStart / 60 * HOUR}px"></div><div class="cal-off" style="top:${P.workEnd / 60 * HOUR}px;bottom:0"></div>`;
+      return `<div class="cal-col${s === TODAY_ISO ? " today" : ""}" data-day="${s}">${off}${evs}${s === TODAY_ISO ? `<div class="cal-now" style="top:${nowMin() / 60 * HOUR}px"></div>` : ""}</div>`;
+    }).join("");
+    return `<div class="cal-wk" style="--n:${n}">
+      <div class="cal-wk-head"><div class="cal-gut mono" title="Your time zone">GMT${tzLabel()}</div><div class="cal-days">${head}</div></div>
+      <div class="cal-ad"><div class="cal-gut label-mono">All day</div><div class="cal-ad-grid">${cols.map((d, i) => `<div class="cal-ad-bg" style="grid-column:${i + 1};grid-row:1/${lanes.length + 2}" data-day="${iso(d)}"></div>`).join("")}${bars.map(bar).join("")}</div></div>
+      <div class="scroll cal-tg" id="cal-tg"><div class="cal-tg-in" style="height:${24 * HOUR}px"><div class="cal-gut cal-hours">${hours}</div><div class="cal-cols">${body}</div></div></div>
+    </div>`;
+  }
+  function calMonthView() {
+    const P = CP(), a = fromIso(S.cal.date), first = new Date(a.getFullYear(), a.getMonth(), 1), start = weekStartOf(first), g = S.cal.ghost, MAXC = 4;
+    const weeks = Math.ceil((isoDiff(iso(start), iso(first)) + new Date(a.getFullYear(), a.getMonth() + 1, 0).getDate()) / 7);
+    const days = Array.from({ length: weeks * 7 }, (_, k) => addD(start, k)), vis = days.filter(showDay), per = vis.length / weeks;
+    const from = iso(days[0]), to = iso(days[days.length - 1]), occs = calOccs(from, to), tasks = calTasks(from, to);
+    const cells = vis.map((d, k) => {
+      const s = iso(d), items = occs.filter(o => o.date <= s && o.end >= s).map(o => occChip(o, "", isBar(o))).concat(tasks.filter(x => x.date === s).map(x => taskChip(x.t)));
+      if (g && g.date <= s && (g.end || g.date) >= s) items.unshift(`<div class="cal-chip cal-bar ghost">${esc(g.title || "(No title)")}</div>`);
+      const shown = items.length > MAXC ? items.slice(0, MAXC - 1) : items;
+      return `<div class="cal-mc${d.getMonth() !== a.getMonth() ? " out" : ""}${s === TODAY_ISO ? " today" : ""}" data-day="${s}">${P.weekNums && k % per === 0 ? `<span class="cal-wn mono">W${isoWeek(d)}</span>` : ""}<button class="cal-mn" data-a="cal-open:${s}" title="Open day">${d.getDate() === 1 ? MONTHS[d.getMonth()] + " " : ""}${d.getDate()}</button>${shown.join("")}${items.length > MAXC ? `<button class="cal-more" data-a="cal-daypop:${s}">${items.length - MAXC + 1} more</button>` : ""}</div>`;
+    }).join("");
+    return `<div class="cal-month" style="--n:${per};--w:${weeks}"><div class="cal-mhead">${vis.slice(0, per).map(d => `<div class="cal-mh label-mono">${WEEKDAYS[(d.getDay() + 6) % 7]}</div>`).join("")}</div><div class="cal-mgrid">${cells}</div></div>`;
+  }
+  // one month of small day buttons (sidebar mini calendar and year view)
+  function miniGrid(m, o = {}) {
+    const P = CP(), start = weekStartOf(m), last = new Date(m.getFullYear(), m.getMonth() + 1, 0), sel = o.sel || new Set();
+    let html = (P.weekNums ? '<span class="wn"></span>' : "") + [0, 1, 2, 3, 4, 5, 6].map(k => `<span class="wd">${WEEKDAYS[(addD(start, k).getDay() + 6) % 7][0]}</span>`).join("");
+    for (let w = 0; w < 6; w++) {
+      const ws = addD(start, w * 7); if (ws > last) break;
+      if (P.weekNums) html += `<span class="wn">${isoWeek(ws)}</span>`;
+      for (let k = 0; k < 7; k++) { const d = addD(ws, k), s = iso(d), out = d.getMonth() !== m.getMonth();
+        html += `<button class="md${out ? " out" : ""}${s === TODAY_ISO ? " today" : ""}${sel.has(s) ? " sel" : ""}${o.busy && !out && o.busy.has(s) ? " busy" : ""}" data-a="${o.act || "cal-goto"}:${s}">${d.getDate()}</button>`; }
+    }
+    return `<div class="cal-mini-g${P.weekNums ? " wk" : ""}">${html}</div>`;
+  }
+  function calYearView() {
+    const y = fromIso(S.cal.date).getFullYear(), from = `${y}-01-01`, to = `${y}-12-31`, busy = new Set();
+    calOccs(from, to).forEach(o => { for (let s = o.date; s <= o.end; s = addIso(s, 1)) busy.add(s); });
+    calTasks(from, to).forEach(x => busy.add(x.date));
+    return `<div class="scroll"><div class="cal-year">${MONTHS_LONG.map((name, m) => `<div class="cal-ym"><button class="cal-ym-t" data-a="cal-month:${y}-${String(m + 1).padStart(2, "0")}-01">${name}</button>${miniGrid(new Date(y, m, 1), { busy, act: "cal-open" })}</div>`).join("")}</div></div>`;
+  }
+  // schedule: the next 90 days as a list; with a search query, matching events of the past and next year
+  function calScheduleView(q) {
+    const s = q.toLowerCase(), from = q ? addIso(TODAY_ISO, -365) : S.cal.date, to = q ? addIso(TODAY_ISO, 365) : addIso(S.cal.date, 90);
+    let occs = calOccs(from, to), tasks = calTasks(from, to);
+    if (q) { occs = occs.filter(o => [o.ev.title, o.ev.desc, o.ev.loc].some(v => v && v.toLowerCase().includes(s))); tasks = tasks.filter(x => x.t.text.toLowerCase().includes(s)); }
+    const byDay = {};
+    occs.forEach(o => { const d = o.date < from ? from : o.date; (byDay[d] = byDay[d] || []).push(o); });
+    tasks.forEach(x => (byDay[x.date] = byDay[x.date] || []).push(x));
+    const when = o => o.ev.allDay ? "All day" : o.end !== o.date ? fmtT(o.ev.start) + " →" : `${fmtT(o.ev.start)} – ${fmtT(o.ev.end)}`;
+    const row = it => it.t ? `<div class="cal-srow" data-task="${it.t.id}"><span class="cal-stime">ToDo</span>${ic(it.t.done ? "circle-check" : "circle", 13, "var(--text-tertiary)")}<span class="cal-stt${it.t.done ? " done" : ""}">${esc(it.t.text)}</span></div>`
+      : `<div class="cal-srow${dimCls(it)}" data-occ="${it.key}" style="--c:${evColor(it.ev)}"><span class="cal-stime">${when(it)}</span><i class="cal-dot"></i><span class="cal-stt">${evIcon(it.ev) ? ic(evIcon(it.ev), 12) + " " : ""}${evTitle(it.ev)}</span>${it.ev.loc ? `<span class="cal-sloc">${esc(it.ev.loc)}</span>` : ""}</div>`;
+    const body = Object.keys(byDay).sort().map(k => { const d = fromIso(k); return `<div class="cal-sday${k === TODAY_ISO ? " today" : ""}"><button class="cal-sdate" data-a="cal-open:${k}"><span class="dn">${d.getDate()}</span><span class="label-mono">${MONTHS[d.getMonth()]}, ${WEEKDAYS[(d.getDay() + 6) % 7]}${d.getFullYear() !== TODAY.getFullYear() ? " " + d.getFullYear() : ""}</span></button><div class="cal-sitems">${byDay[k].map(row).join("")}</div></div>`; }).join("");
+    return `<div class="scroll"><div class="cal-sched">${q ? `<div class="cal-sres label-mono">${occs.length + tasks.length} ${occs.length + tasks.length === 1 ? "result" : "results"} for “${esc(q)}”</div>` : ""}${body || emptyState(q ? "calendar-search" : "calendar", q ? "No matching events" : "Nothing planned", q ? "Titles, places and descriptions are searched." : "Nothing in the next 90 days. Press C to create an event.")}</div></div>`;
+  }
+  function calInsights() {
+    const f = weekStartOf(fromIso(S.cal.date)), from = iso(f), to = iso(addD(f, 6));
+    const occs = calOccs(from, to).filter(o => !isBar(o) && !evLocked(o.ev) && o.ev.rsvp !== "no");
+    const h = list => list.reduce((s, o) => s + (o.ev.end - o.ev.start) / 60, 0), total = h(occs), meet = h(occs.filter(o => (o.ev.guests && o.ev.guests.length) || o.ev.org));
+    const rows = D.calendars.filter(c => !c.other && !c.hidden).map(c => ({ c, v: h(occs.filter(o => o.ev.cal === c.id)) })), max = Math.max(1, ...rows.map(r => r.v));
+    return `<div class="cal-sec"><div class="cal-sec-h label-mono">Time insights</div>
+      <div class="cal-ins-big">${fmtH(total)}h<small>in events · ${fmtShort(from)} – ${fmtShort(to)}</small></div>
+      <div class="cal-ins-sub">${fmtH(meet)}h with guests · ${fmtH(total - meet)}h on your own</div>
+      ${rows.map(r => `<div class="cal-ins-row"><i class="cal-dot" style="--c:${calCol(r.c)}"></i><span class="lbl">${esc(r.c.name)}</span><span class="cal-ins-track"><span style="width:${r.v / max * 100}%;background:${calCol(r.c)}"></span></span><span class="mono">${fmtH(r.v)}h</span></div>`).join("")}</div>`;
+  }
+  // ToDos to plan: open ToDos without a time block; drag one into the calendar to give it one
+  const planned = t => D.events.some(e => e.todo === t.id);
+  const fmtDur = m => m < 60 ? m + "m" : fmtH(m / 60) + "h";
+  const DUR_OPTS = [15, 30, 45, 60, 90, 120, 180, 240];
+  function calTodoList() {
+    const open = store.get("calTodos", true), list = D.todos.filter(t => !t.done && !planned(t));
+    const row = t => `<div class="cal-todo" data-sched="${t.id}" data-a="cal-tdmenu:${t.id}" title="Drag into the calendar · click to set the duration">${ic("circle", 13, "var(--text-tertiary)")}<span class="lbl">${esc(t.text)}</span>${t.dur ? `<span class="mono">${fmtDur(t.dur)}</span>` : ""}</div>`;
+    return `<div class="cal-sec"><button class="cal-sec-h label-mono cal-fold${open ? " open" : ""}" data-a="cal-todos-fold" aria-expanded="${open}"><span>ToDos to plan${list.length ? " · " + list.length : ""}</span>${ic("chevron-down", 13)}</button>
+      ${open ? list.map(row).join("") || `<div class="cal-tdempty">Every open ToDo has a time in the calendar.</div>` : ""}</div>`;
+  }
+  // first free slot of that length on a day, from the start of the working day
+  function firstFree(date, dur) {
+    const busy = calOccs(date, date).filter(o => !isBar(o) && o.ev.rsvp !== "no" && o.ev.busy !== "free");
+    for (let s = CP().workStart; s + dur <= 1440; s += 15) if (!busy.some(o => o.ev.start < s + dur && o.ev.end > s)) return s;
+    return CP().workStart;
+  }
+  function scheduleTodo(id, date, start, dur) {
+    const t = todo(id); if (!t) return;
+    const snap = calSnap(), s = start == null ? firstFree(date, dur) : start;
+    t.dur = t.dur || dur;
+    D.events.push({ id: uid("e"), title: t.text, todo: t.id, cal: defCal(), date, start: s, end: Math.min(1440, s + dur), reminders: CP().reminder ? [CP().reminder] : [], guests: [], exdates: [] });
+    closeCalPop(true); render(); undoToast(`Planned ${fmtShort(date)}, ${fmtT(s)} – ${fmtT(Math.min(1440, s + dur))}`, snap);
+  }
+  // dropped without a duration: ask how long it takes (presets or hours typed in)
+  function askDuration(id, date, start) {
+    const t = todo(id); if (!t) return;
+    S.cal.pend = { id, date, start };
+    if (calPop) { calPop.remove(); calPop = null; }
+    S.cal.ghost = start == null ? { date, end: date, allDay: true, title: t.text } : { date, start, end: Math.min(1440, start + 60), title: t.text };
+    render();
+    const el = document.querySelector(".cal-main .ghost") || document.querySelector(".cal-main");
+    openCalPop(el, `<div class="cp-acts"><span class="cp-dayt">How long will it take?</span><button class="ib" data-a="cal-popx" title="Close  Esc">${ic("x", 15)}</button></div>
+      <div class="cp-sub cd-what">${esc(t.text)} · ${fmtLong(date)}${start == null ? "" : ", " + fmtT(start)}</div>
+      <div class="cd-opts">${DUR_OPTS.map(m => `<button class="btn sm" data-a="cal-tdur:${m}">${fmtDur(m)}</button>`).join("")}</div>
+      <div class="cd-custom"><input class="input ce-num" id="cd-h" inputmode="decimal" placeholder="1.5" autocomplete="off"><span>hours</span><span style="flex:1"></span><button class="btn sm primary" data-a="cal-tdur:custom">Plan</button></div>`, "dur");
+    calPop.querySelector("#cd-h").focus();
+  }
+  function calSide() {
+    const m = fromIso(S.cal.mini || S.cal.date); m.setDate(1);
+    const sel = new Set(["day", "week", "4day"].includes(S.cal.view) ? calCols().map(iso) : [S.cal.date]);
+    const row = c => `<div class="cal-crow"><button class="cal-ck${c.hidden ? "" : " on"}" data-a="cal-vis:${c.id}" style="--c:${calCol(c)}" role="checkbox" aria-checked="${!c.hidden}" title="${c.hidden ? "Show" : "Hide"}">${ic("check", 11)}</button><span class="lbl" data-a="cal-vis:${c.id}">${esc(c.name)}</span><button class="ib sm" data-a="cal-cmenu:${c.id}" title="Options for ${esc(c.name)}">${ic("ellipsis", 14)}</button></div>`;
+    return `<aside class="cal-side">
+      <button class="btn cal-create" data-a="cal-create">${ic("plus", 16)}Create${ic("chevron-down", 13, "var(--text-tertiary)")}</button>
+      <div class="cal-mini"><div class="cal-mini-h"><span>${MONTHS_LONG[m.getMonth()]} ${m.getFullYear()}</span><button class="ib sm" data-a="cal-mini:-1" title="Previous month">${ic("chevron-left", 14)}</button><button class="ib sm" data-a="cal-mini:1" title="Next month">${ic("chevron-right", 14)}</button></div>${miniGrid(m, { sel })}</div>
+      <div class="cal-sec"><div class="cal-sec-h label-mono">My calendars<button class="ib sm" data-a="cal-add" title="Create new calendar">${ic("plus", 14)}</button></div>
+        ${D.calendars.filter(c => !c.other).map(row).join("")}
+        <div class="cal-crow"><button class="cal-ck${CP().tasksHidden ? "" : " on"}" data-a="cal-tasks" style="--c:var(--text-secondary)" role="checkbox" aria-checked="${!CP().tasksHidden}">${ic("check", 11)}</button><span class="lbl" data-a="cal-tasks">ToDos</span></div></div>
+      <div class="cal-sec"><div class="cal-sec-h label-mono">Other calendars</div>${D.calendars.filter(c => c.other).map(row).join("")}</div>
+      ${calInsights()}
+      ${calTodoList()}
+    </aside>`;
+  }
+  function viewCalendar() {
+    const v = S.cal.view, q = S.cal.q.trim();
+    const main = q ? calScheduleView(q) : v === "month" ? calMonthView() : v === "year" ? calYearView() : v === "schedule" ? calScheduleView("") : calWeekView();
+    return header("Calendar", { lead: ic("calendar", 16, "var(--text-secondary)"),
+      mid: `<button class="ib cal-side-btn${S.cal.side ? " on" : ""}" data-a="cal-side" title="Mini calendar and calendars">${ic("calendar-days")}</button><button class="btn sm cal-today" data-a="cal-today" title="Today  T">Today</button><button class="ib" data-a="cal-step:-1" title="Previous  K">${ic("chevron-left")}</button><button class="ib" data-a="cal-step:1" title="Next  J">${ic("chevron-right")}</button><span class="cal-range">${calLabel()}</span>`,
+      actions: `<label class="cal-search">${ic("search", 14)}<input id="cal-q" placeholder="Search events" value="${esc(S.cal.q)}" autocomplete="off">${S.cal.q ? `<button class="ib sm" data-a="cal-q-clear" title="Clear search">${ic("x", 13)}</button>` : ""}</label>
+        <button class="btn sm" data-a="cal-viewmenu">${CAL_VIEWS.find(x => x[0] === v)[1]}${ic("chevron-down", 13, "var(--text-tertiary)")}</button>
+        <button class="ib" data-a="cal-settings" title="Calendar settings">${ic("settings")}</button>
+        <button class="ib" data-a="cal-more" title="More">${ic("ellipsis")}</button>` }) +
+      `<div class="cal-page${S.cal.side ? " side-on" : ""}"><div class="cal-main" data-view="${v}">${main}</div>${calSide()}</div>`;
+  }
+  // after a render: scroll the time grid to the start of the working day when the view or range was just opened
+  function calAfterRender() {
+    const tg = document.getElementById("cal-tg");
+    if (tg && S.cal.scroll) tg.scrollTop = Math.max(0, CP().workStart / 60 - .5) * HOUR;
+    if (S.route === "pin/calendar") S.cal.scroll = false;
+  }
+
+  /* popovers: event details, ToDo details, quick create, "more" list of a day */
+  let calPop = null;
+  function closeCalPop(silent) {
+    if (calPop) { calPop.remove(); calPop = null; }
+    if (S.cal.ghost) { S.cal.ghost = null; if (!silent) render(); }
+  }
+  function openCalPop(anchor, html, cls = "") {
+    if (calPop) calPop.remove();
+    calPop = document.createElement("div"); calPop.className = "cal-pop " + cls; calPop.innerHTML = html;
+    document.body.appendChild(calPop);
+    const r = anchor.getBoundingClientRect(), w = calPop.offsetWidth, h = calPop.offsetHeight;
+    let x = r.right + 10, y = Math.min(Math.max(8, r.top), innerHeight - h - 8);
+    if (x + w > innerWidth - 8) x = r.left - w - 10;
+    if (x < 8) { x = Math.max(8, Math.min(r.left, innerWidth - w - 8)); y = r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6; }
+    calPop.style.left = x + "px"; calPop.style.top = y + "px";
+  }
+  function occPopHtml(o) {
+    const ev = o.ev, c = calOf(ev.cal), locked = evLocked(ev), org = ev.org || D.me;
+    const row = (icon, body) => `<div class="cp-row">${ic(icon, 15, "var(--text-tertiary)")}<div>${body}</div></div>`;
+    const people = (ev.guests && ev.guests.length) || ev.org ? [{ name: org, org: true, rsvp: "yes" }].concat(ev.org ? [{ name: D.me, rsvp: ev.rsvp }] : [], (ev.guests || []).filter(g => g.name !== org && g.name !== D.me)) : [];
+    const count = ["yes", "maybe", "no"].map(k => [people.filter(p => p.rsvp === k).length, k]).filter(x => x[0]).map(([n, k]) => n + " " + k).concat(people.some(p => !p.rsvp) ? [people.filter(p => !p.rsvp).length + " awaiting"] : []).join(", ");
+    const rsvpIc = r => r === "yes" ? ic("check", 12, "var(--success)") : r === "no" ? ic("x", 12, "var(--danger)") : ic("circle-help", 12, "var(--text-tertiary)");
+    return `<div class="cp-acts">${locked ? "" : `<button class="ib" data-a="cal-edit:${o.key}" title="Edit event  E">${ic("pencil", 15)}</button><button class="ib" data-a="cal-del:${o.key}" title="Delete event  Del">${ic("trash-2", 15)}</button><button class="ib" data-a="cal-omenu:${o.key}" title="Options">${ic("ellipsis", 15)}</button>`}<button class="ib" data-a="cal-popx" title="Close  Esc">${ic("x", 15)}</button></div>
+      <div class="cp-head"><span class="cp-sw" style="background:${evColor(ev)}"></span><div><div class="cp-t">${evIcon(ev) ? ic(evIcon(ev), 16) : ""}${evTitle(ev)}</div><div class="cp-sub">${occWhen(o)}</div>${ev.rrule ? `<div class="cp-sub">${ic("repeat", 11)} ${repText(ev.rrule, ev.date)}</div>` : ""}</div></div>
+      ${ev.todo && todo(ev.todo) ? row(todo(ev.todo).done ? "circle-check" : "circle", `<div>Time for a ToDo${todo(ev.todo).done ? " · done" : ""}</div><div class="cp-foot cp-left"><button class="btn sm" data-a="cal-task-done:${ev.todo}">${todo(ev.todo).done ? "Mark as open" : "Mark ToDo complete"}</button><button class="btn sm ghost" data-a="go:pin/todos">Open ToDos</button></div>`) : ""}
+      ${ev.meet ? row("video", `<button class="btn sm primary" data-a="cal-join:${esc(ev.meet)}">Join with Chameleon Meet</button><div class="cp-sub mono">${esc(ev.meet)}</div>`) : ""}
+      ${ev.loc ? row("map-pin", esc(ev.loc)) : ""}
+      ${people.length ? row("users", `<div>${people.length} guests</div><div class="cp-sub">${count}</div><div class="cp-guests">${people.map(p => `<div class="cp-g">${av(p.name, 20)}<span class="cp-gn">${esc(p.name)}${p.org ? ' <span class="cp-sub">· Organizer</span>' : ""}</span>${rsvpIc(p.rsvp)}</div>`).join("")}</div>`) : ""}
+      ${ev.desc ? row("align-left", `<div class="cp-desc">${esc(ev.desc)}</div>`) : ""}
+      ${ev.reminders && ev.reminders.length ? row("bell", ev.reminders.map(remText).join(", ")) : ""}
+      ${row(ev.type === "focus" ? "headphones" : "calendar", `${esc(c ? c.name : "")}${ev.type === "focus" ? " · Focus time" : ""}${ev.busy === "free" ? " · Free" : ""}${ev.vis === "private" ? " · Private" : ev.vis === "public" ? " · Public" : ""}`)}
+      ${ev.org && !locked ? `<div class="cp-rsvp"><span>Going?</span>${[["yes", "Yes"], ["no", "No"], ["maybe", "Maybe"]].map(([k, l]) => `<button class="${ev.rsvp === k ? "on" : ""}" data-a="cal-rsvp:${o.key}|${k}">${l}</button>`).join("")}</div>` : ""}`;
+  }
+  function taskPopHtml(t) {
+    const f = folder(t.folder), pr = prio(t.prio);
+    return `<div class="cp-acts"><button class="ib" data-a="cal-task-del:${t.id}" title="Move to trash">${ic("trash-2", 15)}</button><button class="ib" data-a="cal-popx" title="Close  Esc">${ic("x", 15)}</button></div>
+      <div class="cp-head"><span class="cp-sw task">${ic(t.done ? "circle-check" : "circle", 15)}</span><div><div class="cp-t${t.done ? " done" : ""}">${esc(t.text)}</div><div class="cp-sub">${fmtLong(dueIso(t))} · ToDo</div></div></div>
+      ${f ? `<div class="cp-row">${folderIcon(f, 15)}<div>${esc(fpath(f.id).map(p => p.name).join(" / "))}</div></div>` : ""}
+      ${pr.id ? `<div class="cp-row">${ic(pr.icon, 15, pr.color)}<div>${pr.name}</div></div>` : ""}
+      <div class="cp-foot"><button class="btn sm" data-a="go:pin/todos">Open ToDos</button><button class="btn sm primary" data-a="cal-task-done:${t.id}">${t.done ? "Mark as open" : "Mark complete"}</button></div>`;
+  }
+  const openOccPop = (el, key) => { const o = occFind(key); if (!o) return; openCalPop(el, occPopHtml(o)); calPop.dataset.key = key; };
+  const openTaskPop = (el, id) => { const t = todo(id); if (t) openCalPop(el, taskPopHtml(t)); };
+  const CQ_TYPES = [["event", "Event"], ["focus", "Focus time"], ["task", "Task"]];
+  function quickHtml() {
+    const g = S.cal.ghost, c = calOf(g.cal) || {};
+    const when = g.allDay ? (g.end && g.end !== g.date ? `${fmtLong(g.date)} – ${fmtLong(g.end)}` : fmtLong(g.date)) : `${fmtLong(g.date)} · ${fmtT(g.start)} – ${fmtT(g.end)}`;
+    return `<div class="cp-acts"><button class="ib" data-a="cal-popx" title="Close  Esc">${ic("x", 15)}</button></div>
+      <input id="cq-title" class="cq-title" placeholder="${g.type === "task" ? "Add a ToDo" : "Add title"}" autocomplete="off" value="${esc(g.title || "")}">
+      <div class="seg cq-types">${CQ_TYPES.map(([k, l]) => `<button class="${g.type === k ? "on" : ""}" data-a="cq-type:${k}">${l}</button>`).join("")}</div>
+      <div class="cp-row">${ic("clock", 15, "var(--text-tertiary)")}<div>${when}</div></div>
+      ${g.type === "task" ? "" : `<div class="cp-row">${ic("calendar", 15, "var(--text-tertiary)")}<div><button class="chip" data-a="cq-cal"><i class="cal-dot" style="--c:${calCol(c)}"></i>${esc(c.name || "Calendar")}${ic("chevron-down", 12)}</button></div></div>`}
+      <div class="cp-foot">${g.type === "task" ? "" : `<button class="btn sm ghost" data-a="cq-more">More options</button>`}<button class="btn sm primary" data-a="cq-save">Save</button></div>`;
+  }
+  function startQuick(g) {
+    if (calPop) { calPop.remove(); calPop = null; }
+    S.cal.ghost = Object.assign({ cal: defCal(), type: "event" }, g, g.allDay ? { end: g.end || g.date } : {});
+    render();
+    const el = document.querySelector(".cal-main .ghost"); if (!el) return;
+    openCalPop(el, quickHtml(), "qc"); calPop.querySelector("#cq-title").focus();
+  }
+  function redrawQuick() {
+    const t = calPop && calPop.querySelector("#cq-title"); if (!t) return;
+    S.cal.ghost.title = t.value; calPop.innerHTML = quickHtml();
+    const n = calPop.querySelector("#cq-title"); n.focus(); n.setSelectionRange(n.value.length, n.value.length);
+  }
+  const newEvent = (g, title = "") => ({ id: uid("e"), title: title || (g.type === "focus" ? "Focus time" : ""), type: g.type !== "event" ? g.type : undefined, cal: g.cal || defCal(), date: g.date,
+    endDate: g.end && g.allDay && g.end !== g.date ? g.end : undefined, allDay: !!g.allDay, start: g.allDay ? undefined : g.start, end: g.allDay ? undefined : g.end,
+    reminders: !g.allDay && CP().reminder ? [CP().reminder] : [], guests: [], exdates: [], busy: g.type === "focus" ? "busy" : undefined });
+  function saveQuick() {
+    const g = S.cal.ghost; if (!g) return;
+    const title = calPop.querySelector("#cq-title").value.trim(), snap = calSnap();
+    if (g.type === "task") D.todos.unshift({ id: uid("t"), text: title || "Untitled ToDo", due: fmtDay(fromIso(g.date)), prio: 0, folder: null });
+    else D.events.push(newEvent(g, title));
+    closeCalPop(true); render(); undoToast(g.type === "task" ? "ToDo created" : "Event saved", snap);
+  }
+  function openNew(type = "event") {
+    if (type === "task") return openTodoDialog({ due: fmtDay(fromIso(S.cal.date)) });
+    const s = S.cal.date === TODAY_ISO ? Math.min(1380, Math.ceil((nowMin() + 1) / 60) * 60) : 540;
+    openEditor(null, newEvent({ type, date: S.cal.date, start: s, end: Math.min(1440, s + CP().duration), allDay: false }));
+  }
+
+  /* undo: a snapshot of events and ToDos taken before each change */
+  let calUndo = null;
+  const calSnap = () => JSON.stringify({ events: D.events, todos: D.todos });
+  function undoToast(text, snap) {
+    calUndo = snap; document.querySelectorAll(".toast").forEach(t => t.remove());
+    const t = document.createElement("div"); t.className = "toast"; t.innerHTML = ic("check", 14, "var(--success)") + esc(text) + `<button class="btn sm ghost" data-a="cal-undo">Undo</button>`;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 6000);
+  }
+
+  /* event editor (full dialog) */
+  const MEET = () => "meet.chameleon.app/" + [3, 4, 3].map(n => Array.from({ length: n }, () => "abcdefghijkmnpqrstuvwxyz"[Math.floor(Math.random() * 24)]).join("")).join("-");
+  function repKey(r, date) {
+    if (!r) return "none";
+    if ((r.interval || 1) > 1 || r.count || r.until) return "custom";
+    if (r.freq !== "weekly") return r.freq;
+    const days = (r.days && r.days.length ? r.days : [fromIso(date).getDay()]).slice().sort();
+    return days.join() === "1,2,3,4,5" ? "weekdays" : days.length === 1 && days[0] === fromIso(date).getDay() ? "weekly" : "custom";
+  }
+  function setRep(v) {
+    const d = S.cal.ed.d, dow = fromIso(d.date).getDay();
+    S.cal.custom = v === "custom";
+    d.rrule = { none: undefined, daily: { freq: "daily", interval: 1 }, weekly: { freq: "weekly", interval: 1, days: [dow] }, weekdays: { freq: "weekly", interval: 1, days: [1, 2, 3, 4, 5] }, monthly: { freq: "monthly", interval: 1 }, yearly: { freq: "yearly", interval: 1 }, custom: d.rrule || { freq: "weekly", interval: 1, days: [dow] } }[v];
+  }
+  function editorHtml() {
+    const d = S.cal.ed.d, isNew = !D.events.some(e => e.id === d.id), c = calOf(d.cal) || {}, day = fromIso(d.date), r = d.rrule;
+    const repVal = S.cal.custom && r ? "custom" : repKey(r, d.date);
+    const repOpts = [["none", "Does not repeat"], ["daily", "Daily"], ["weekly", "Weekly on " + DAYS_LONG[day.getDay()]], ["weekdays", "Every weekday (Monday to Friday)"], ["monthly", "Monthly on day " + day.getDate()], ["yearly", `Annually on ${day.getDate()} ${MONTHS_LONG[day.getMonth()]}`], ["custom", "Custom…"]];
+    const ends = !r ? "never" : r.until ? "on" : r.count ? "after" : "never";
+    const custom = repVal === "custom" ? `<div class="ce-custom"><span>Repeat every</span><input class="input ce-num" id="ce-iv" type="number" min="1" value="${r.interval || 1}">
+        <select class="input ce-sel" id="ce-freq">${[["daily", "days"], ["weekly", "weeks"], ["monthly", "months"], ["yearly", "years"]].map(([f, l]) => `<option value="${f}"${r.freq === f ? " selected" : ""}>${l}</option>`).join("")}</select>
+        ${r.freq === "weekly" ? `<div class="ce-wds">${[1, 2, 3, 4, 5, 6, 0].map(k => `<button class="${(r.days || [day.getDay()]).includes(k) ? "on" : ""}" data-a="ce-wd:${k}" title="${DAYS_LONG[k]}">${DAYS_LONG[k][0]}</button>`).join("")}</div>` : ""}
+        <div class="ce-ends"><span>Ends</span><div class="seg">${[["never", "Never"], ["on", "On"], ["after", "After"]].map(([k, l]) => `<button class="${ends === k ? "on" : ""}" data-a="ce-ends:${k}">${l}</button>`).join("")}</div>
+        ${ends === "on" ? `<input class="input ce-date" id="ce-until" type="date" value="${r.until}">` : ends === "after" ? `<input class="input ce-num" id="ce-count" type="number" min="1" value="${r.count}"><span>occurrences</span>` : ""}</div></div>` : "";
+    const clash = overlaps(d), busyGuest = name => overlaps(d, o => o.ev.org === name || (o.ev.guests || []).some(g => g.name === name)).length > 0;
+    const guests = d.guests.map(g => `<span class="chip ce-guest"${busyGuest(g.name) ? ' title="Busy at this time"' : ""}>${av(g.name, 16)}${esc(g.name)}${busyGuest(g.name) ? '<i class="ce-busy"></i>' : ""}<span class="ce-x" data-a="ce-guest-x:${esc(g.name)}" title="Remove">${ic("x", 11)}</span></span>`).join("");
+    const rems = (d.reminders || []).map((m, i) => `<div class="ce-rem"><select class="input ce-sel" data-rem="${i}">${REM_OPTS.concat(REM_OPTS.includes(m) ? [] : [m]).map(v => `<option value="${v}"${v === m ? " selected" : ""}>${remText(v)}</option>`).join("")}</select><button class="ib sm" data-a="ce-rem-x:${i}" title="Remove notification">${ic("x", 13)}</button></div>`).join("");
+    const field = (icon, body) => `<div class="ce-f">${ic(icon, 16, "var(--text-tertiary)")}<div class="ce-fb">${body}</div></div>`;
+    const seg = (act, cur, opts) => `<div class="seg">${opts.map(([k, l]) => `<button class="${cur === k ? "on" : ""}" data-a="${act}:${k}">${l}</button>`).join("")}</div>`;
+    return `<div class="dialog cal-ed" role="dialog" aria-modal="true">
+      <div class="dh"><span class="pill-crumb">${ic("calendar", 13)}Calendar</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">${isNew ? "New event" : "Edit event"}</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db">
+        <input class="big" id="ce-title" placeholder="Add title" value="${esc(d.title || "")}" autocomplete="off">
+        <div class="ce-types">${seg("ce-type", d.type || "event", CQ_TYPES)}</div>
+        ${field("clock", `<div class="ce-when"><input class="input ce-date" id="ce-date" type="date" value="${d.date}">${d.allDay ? "" : `<input class="input ce-time" id="ce-start" type="time" step="900" value="${minToInput(d.start)}"><span>–</span>${d.endDate ? `<input class="input ce-date" id="ce-enddate" type="date" value="${d.endDate}">` : ""}<input class="input ce-time" id="ce-end" type="time" step="900" value="${minToInput(d.end)}">`}${d.allDay ? `<span>–</span><input class="input ce-date" id="ce-enddate" type="date" value="${d.endDate || d.date}">` : ""}</div>
+          <div class="ce-when"><label class="ce-check"><button class="switch${d.allDay ? " on" : ""}" data-a="ce-allday" role="switch" aria-checked="${!!d.allDay}"></button>All day</label>${d.allDay ? "" : `<label class="ce-check"><button class="switch${d.endDate ? " on" : ""}" data-a="ce-multi" role="switch" aria-checked="${!!d.endDate}"></button>Ends another day</label>`}<span class="mono ce-tz">GMT${tzLabel()}</span></div>
+          ${clash.length ? `<div class="ce-hint">${ic("circle-alert", 13)}Overlaps with ${clash.map(o => `${evTitle(o.ev)} (${fmtT(o.ev.start)})`).join(", ")}</div>` : ""}
+          <select class="input ce-sel" id="ce-rep">${repOpts.map(([k, l]) => `<option value="${k}"${repVal === k ? " selected" : ""}>${l}</option>`).join("")}</select>${custom}`)}
+        ${field("users", `<div class="ce-guests">${guests}<input class="input ce-gin" id="ce-guest" placeholder="Add guests — name or email, then Enter" autocomplete="off"></div>`)}
+        ${field("video", d.meet ? `<span class="chip">${ic("video", 13)}<span class="mono">${esc(d.meet)}</span><span class="ce-x" data-a="ce-meet-x" title="Remove">${ic("x", 11)}</span></span>` : `<button class="btn sm" data-a="ce-meet">${ic("video", 13)}Add Chameleon Meet video conferencing</button>`)}
+        ${field("map-pin", `<input class="input ce-wide" id="ce-loc" placeholder="Add location" value="${esc(d.loc || "")}" autocomplete="off">`)}
+        ${field("bell", `${rems}<button class="btn sm ghost" data-a="ce-rem-add">${ic("plus", 13)}Add notification</button>`)}
+        ${field("calendar", `<div class="ce-row"><button class="chip" data-a="ce-cal"><i class="cal-dot" style="--c:${calCol(c)}"></i>${esc(c.name || "Calendar")}${ic("chevron-down", 12)}</button>
+          <div class="ce-colors"><button class="fd-color${!d.color ? " on" : ""}" data-a="ce-color:none" title="Calendar colour" style="background:${calCol(c)}"></button><span class="ce-csep"></span>${Object.keys(CAL_COLORS).map(k => `<button class="fd-color${d.color === k ? " on" : ""}" data-a="ce-color:${k}" title="${CAL_COLOR_NAMES[k]}" style="background:${CAL_COLORS[k]}"></button>`).join("")}</div></div>`)}
+        ${field("briefcase", `<div class="ce-row">${seg("ce-busy", d.busy || "busy", [["busy", "Busy"], ["free", "Free"]])}<select class="input ce-sel" id="ce-vis">${[["default", "Default visibility"], ["public", "Public"], ["private", "Private"]].map(([k, l]) => `<option value="${k}"${(d.vis || "default") === k ? " selected" : ""}>${l}</option>`).join("")}</select></div>`)}
+        ${field("align-left", `<textarea id="ce-desc" class="ce-desc" placeholder="Add description">${esc(d.desc || "")}</textarea>`)}
+      </div>
+      <div class="df">${isNew ? "" : `<button class="btn danger-btn" data-a="ce-del">${ic("trash-2", 14)}Delete</button>`}<span style="flex:1"></span><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="ce-save">Save ${kbd([MOD, "⏎"])}</button></div></div>`;
+  }
+  function openEditor(occKey, draft) {
+    closeCalPop(true);
+    const o = occKey && occFind(occKey); if (!o && !draft) return;
+    const d = draft || JSON.parse(JSON.stringify(o.ev));
+    if (o && !draft) { const span = d.endDate ? isoDiff(d.date, d.endDate) : 0; d.date = o.date; if (span) d.endDate = addIso(o.date, span); } // edit the clicked occurrence's dates
+    if (!d.allDay && d.start == null) { d.start = 540; d.end = 600; }
+    d.reminders = d.reminders || []; d.guests = d.guests || [];
+    S.cal.ed = { d, occ: o ? occKey : null }; S.cal.custom = false;
+    openLayer(editorHtml(), l => l.querySelector("#ce-title").focus());
+    render();
+  }
+  // keep what was typed, then redraw the dialog in place
+  function syncEd() {
+    if (!layer || !S.cal.ed || !layer.querySelector(".cal-ed")) return;
+    const d = S.cal.ed.d, v = id => { const el = layer.querySelector("#" + id); return el ? el.value : null; };
+    d.title = v("ce-title") ?? d.title;
+    if (v("ce-date")) d.date = v("ce-date");
+    if (v("ce-start") != null) { d.start = inputToMin(v("ce-start")); d.end = inputToMin(v("ce-end")) || 1440; }
+    if (v("ce-enddate")) d.endDate = v("ce-enddate");
+    if (d.endDate && d.endDate < d.date) d.endDate = d.date;
+    d.loc = v("ce-loc") ?? d.loc; d.desc = v("ce-desc") ?? d.desc; d.vis = v("ce-vis") || d.vis;
+    layer.querySelectorAll("[data-rem]").forEach(s => d.reminders[+s.dataset.rem] = +s.value);
+    const r = d.rrule;
+    if (r && v("ce-iv")) { r.interval = Math.max(1, +v("ce-iv") || 1); r.freq = v("ce-freq") || r.freq; if (v("ce-until")) r.until = v("ce-until"); if (v("ce-count")) r.count = Math.max(1, +v("ce-count") || 1); }
+  }
+  function redrawEd() {
+    syncEd(); if (!layer || !layer.querySelector(".cal-ed")) return;
+    const st = layer.querySelector(".db").scrollTop; layer.innerHTML = editorHtml(); layer.firstElementChild.style.animation = "none"; layer.querySelector(".db").scrollTop = st;
+  }
+  function addGuest(name) {
+    const d = S.cal.ed.d; name = name.trim(); if (!name || name === D.me || d.guests.some(g => g.name.toLowerCase() === name.toLowerCase())) return;
+    d.guests.push({ name }); if (!D.people[name]) D.people[name] = "var(--gray-6)"; redrawEd(); const i = layer.querySelector("#ce-guest"); i && i.focus();
+  }
+  function saveEd() {
+    syncEd(); const { d, occ } = S.cal.ed;
+    if (d.type === "task") { closeLayer(); openTodoDialog({ due: fmtDay(fromIso(d.date)) }); const t = layer.querySelector("#dtitle"); t.value = d.title || ""; return; }
+    if (d.allDay) { delete d.start; delete d.end; if (d.endDate === d.date) delete d.endDate; }
+    else { if (d.endDate === d.date) delete d.endDate; if (!d.endDate && d.end <= d.start) d.end = Math.min(1440, d.start + CP().duration); }
+    d.title = (d.title || "").trim(); ["loc", "desc"].forEach(k => { if (!(d[k] || "").trim()) delete d[k]; });
+    if (d.vis === "default") delete d.vis; if (d.type === "event") delete d.type; if (d.busy === "busy") delete d.busy;
+    if (d.rrule && d.rrule.freq !== "weekly") delete d.rrule.days;
+    const orig = D.events.find(e => e.id === d.id);
+    if (!orig) { const snap = calSnap(); D.events.push(d); return finishEd("Event saved", snap); }
+    if (orig.rrule && occ) return askScope("Edit recurring event", scope => applyEdit(orig, occ.split("@")[1], d, scope));
+    const snap = calSnap(); Object.keys(orig).forEach(k => delete orig[k]); Object.assign(orig, d); finishEd("Event saved", snap);
+  }
+  function finishEd(text, snap) { S.cal.ed = null; closeLayer(); render(); undoToast(text, snap); }
+  // apply a changed occurrence `d` of the series `ev` to this occurrence, this and the following ones, or the whole series
+  function applyEdit(ev, occDate, d, scope) {
+    const snap = calSnap();
+    if (scope === "all" || (scope === "following" && occDate === ev.date)) {
+      const shift = isoDiff(occDate, d.date), span = d.endDate ? isoDiff(d.date, d.endDate) : 0, start = addIso(ev.date, shift);
+      if (shift && d.rrule && d.rrule.freq === "weekly" && d.rrule.days && d.rrule.days.length === 1) d.rrule.days = [fromIso(d.date).getDay()];
+      Object.keys(ev).forEach(k => delete ev[k]); Object.assign(ev, d, { date: start, endDate: span ? addIso(start, span) : undefined, exdates: shift ? [] : (d.exdates || []) });
+    } else if (scope === "following") {
+      ev.rrule = Object.assign({}, ev.rrule, { until: addIso(occDate, -1) });
+      const next = Object.assign({}, d, { id: uid("e"), exdates: [] }); if (next.rrule) { next.rrule = Object.assign({}, next.rrule); delete next.rrule.count; }
+      D.events.push(next);
+    } else { // this event only: it leaves the series as a single event
+      ev.exdates = (ev.exdates || []).concat(occDate);
+      const one = Object.assign({}, d, { id: uid("e"), of: ev.id }); delete one.rrule; delete one.exdates; D.events.push(one);
+    }
+    finishEd("Event saved", snap);
+  }
+  function askScope(title, cb) {
+    S.cal.scopeCb = cb;
+    openLayer(`<div class="dialog" style="width:min(380px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">${esc(title)}</span></div>
+      <div class="db cal-scope">${[["this", "This event"], ["following", "This and following events"], ["all", "All events"]].map(([k, l], i) => `<label><input type="radio" name="scope" value="${k}"${i ? "" : " checked"}>${l}</label>`).join("")}</div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="cal-scope">OK</button></div></div>`, l => l.querySelector(".btn.primary").focus());
+  }
+  function delOcc(key) {
+    const o = occFind(key); if (!o || evLocked(o.ev)) return;
+    closeCalPop(true);
+    const ev = o.ev, drop = () => { D.events = D.events.filter(e => e !== ev && e.of !== ev.id); };
+    if (!ev.rrule) { const snap = calSnap(); drop(); S.cal.ed = null; closeLayer(); render(); return undoToast("Event deleted", snap); }
+    askScope("Delete recurring event", scope => {
+      const snap = calSnap();
+      if (scope === "all" || (scope === "following" && o.date === ev.date)) drop();
+      else if (scope === "following") ev.rrule = Object.assign({}, ev.rrule, { until: addIso(o.date, -1) });
+      else ev.exdates = (ev.exdates || []).concat(o.date);
+      S.cal.ed = null; render(); undoToast("Event deleted", snap);
+    });
+  }
+  // move / resize from dragging: shift in days and/or new start and end minutes
+  function patchOcc(o, p) {
+    const ev = o.ev, shift = p.shift != null ? p.shift : isoDiff(o.date, p.day);
+    if (!shift && (p.s == null || (p.s === ev.start && p.e === ev.end))) return render();
+    const change = d => { d.date = addIso(o.date, shift); if (ev.endDate) d.endDate = addIso(o.end, shift); if (p.s != null) { d.start = p.s; d.end = p.e; } };
+    if (!ev.rrule) { const snap = calSnap(); change(ev); render(); return undoToast("Event updated", snap); }
+    const d = JSON.parse(JSON.stringify(ev)); change(d);
+    render(); askScope("Change recurring event", scope => applyEdit(ev, o.date, d, scope));
+  }
+  function moveTask(id, day) { const t = todo(id); if (!t) return; const snap = calSnap(); t.due = fmtDay(fromIso(day)); render(); undoToast("ToDo moved to " + fmtShort(day), snap); }
+  // the same menu from the "…" in the details popover and from a right-click on an event
+  function occMenu(el, key) {
+    const o = occFind(key); if (!o || evLocked(o.ev)) return;
+    const ev = o.ev, set = (k, v) => { const snap = calSnap(); if (v == null) delete ev[k]; else ev[k] = v; closeCalPop(true); render(); undoToast("Event updated", snap); };
+    openMenu(el, [
+      { icon: "pencil", label: "Edit", kbd: ["E"], run: () => openEditor(key) },
+      { icon: "copy", label: "Duplicate", run: () => { const d = JSON.parse(JSON.stringify(ev)); Object.assign(d, { id: uid("e"), date: o.date, endDate: ev.endDate ? o.end : undefined, exdates: [], title: ev.title }); delete d.of; openEditor(null, d); } },
+      { icon: "trash-2", color: "var(--danger)", label: "Delete", kbd: ["Del"], run: () => delOcc(key) },
+      { head: "Calendar" }, ...D.calendars.filter(c => !c.readonly).map(c => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${calCol(c)}"></i></span>`, label: c.name, check: ev.cal === c.id, run: () => set("cal", c.id) })),
+      { head: "Colour" }, { lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${calCol(calOf(ev.cal))}"></i></span>`, label: "Calendar colour", check: !ev.color, run: () => set("color", null) },
+      ...Object.keys(CAL_COLORS).map(k => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${CAL_COLORS[k]}"></i></span>`, label: CAL_COLOR_NAMES[k], check: ev.color === k, run: () => set("color", k) })),
+    ]);
+  }
+
+  /* calendars: create, rename, colour, delete */
+  function calDialogHtml() {
+    const d = S.cal.cdraft;
+    return `<div class="dialog" style="width:min(420px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">${d.id ? "Calendar settings" : "Create new calendar"}</span><span style="flex:1"></span><button class="ib" data-a="close">${ic("x")}</button></div>
+      <div class="db"><input class="big" id="cc-name" placeholder="Calendar name" value="${esc(d.name)}" autocomplete="off"${d.readonly ? " disabled" : ""}>
+        <div class="label-mono" style="margin:12px 0 8px">Colour</div><div class="fd-colors">${Object.keys(CAL_COLORS).map(k => `<button class="fd-color${d.color === k ? " on" : ""}" data-a="cc-color:${k}" title="${CAL_COLOR_NAMES[k]}" style="background:${CAL_COLORS[k]}"></button>`).join("")}</div></div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="cc-save">${d.id ? "Save" : "Create calendar"}</button></div></div>`;
+  }
+  function openCalDialog(id) {
+    const c = id ? calOf(id) : { name: "", color: "amber" };
+    S.cal.cdraft = { id: id || null, name: c.name, color: c.color, readonly: !!c.readonly };
+    openLayer(calDialogHtml(), l => { const n = l.querySelector("#cc-name"); n.focus(); n.select(); });
+  }
+  function saveCalDialog() {
+    const d = S.cal.cdraft, inp = layer.querySelector("#cc-name"), name = inp.value.trim();
+    if (!name) { inp.focus(); return; }
+    if (d.id) { const c = calOf(d.id); if (!c.readonly) c.name = name; c.color = d.color; toast("Calendar saved"); }
+    else { D.calendars.splice(D.calendars.filter(c => !c.other).length, 0, { id: uid("cal"), name, color: d.color }); toast("Calendar created"); }
+    S.cal.cdraft = null; closeLayer(); render();
+  }
+
+  /* settings dialog */
+  function calSettingsHtml() {
+    const P = CP(), sw = k => `<button class="switch${P[k] ? " on" : ""}" data-a="calp:${k}" role="switch" aria-checked="${!!P[k]}"></button>`;
+    const row = (t, d, ctl) => `<div class="box-row"><div class="l"><b>${t}</b>${d ? `<span>${d}</span>` : ""}</div>${ctl}</div>`;
+    const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${P[key] === v ? "on" : ""}" data-a="calp-set:${key}|${v}">${l}</button>`).join("")}</div>`;
+    const sel = (id, opts, cur) => `<select class="input ce-sel" id="${id}">${opts.map(([v, l]) => `<option value="${v}"${v === cur ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+    return `<div class="dialog cal-set" role="dialog" aria-modal="true"><div class="dh"><span style="font:var(--type-heading)">Calendar settings</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div><div class="db">
+      <div class="label-mono cal-set-h">View options</div><div class="box">
+        ${row("Start of week", "First column in week and month views.", seg("weekStart", [[6, "Sat"], [0, "Sun"], [1, "Mon"]]))}
+        ${row("Time format", "", seg("h12", [[false, "13:00"], [true, "1pm"]]))}
+        ${row("Show weekends", "Week and month views.", sw("weekends"))}
+        ${row("Show week numbers", "Month view and mini calendar.", sw("weekNums"))}
+        ${row("Dim past events", "", sw("dimPast"))}
+        ${row("Show declined events", "", sw("declined"))}
+        ${row("Show completed ToDos", "", sw("doneTasks"))}</div>
+      <div class="label-mono cal-set-h">Event settings</div><div class="box">
+        ${row("Default duration", "Used when you click a time slot or press C.", sel("calp-dur", [15, 30, 45, 60, 90, 120].map(m => [m, m + " minutes"]), P.duration))}
+        ${row("Default notification", "Added to new timed events.", sel("calp-rem", [[0, "None"], [5, "5 minutes before"], [10, "10 minutes before"], [30, "30 minutes before"], [60, "1 hour before"]], P.reminder))}
+        ${row("Working hours", "Hours outside are shaded in day and week views.", `<span class="ce-when"><input class="input ce-time" id="calp-ws" type="time" step="1800" value="${minToInput(P.workStart)}"><span>–</span><input class="input ce-time" id="calp-we" type="time" step="1800" value="${minToInput(P.workEnd)}"></span>`)}</div>
+      <div class="label-mono cal-set-h">Import and export</div><div class="box">
+        ${row("Import", "Add events from an .ics file — Google Calendar, Outlook or Apple Calendar.", `<button class="btn sm" data-a="cal-import">${ic("upload", 13)}Choose file</button>`)}
+        ${row("Export", "Download your events as an .ics file.", `<button class="btn sm" data-a="cal-export">${ic("download", 13)}Export</button>`)}</div>
+    </div></div>`;
+  }
+  function redrawSettings() { if (!layer || !layer.querySelector(".cal-set")) return; const st = layer.querySelector(".db").scrollTop; layer.innerHTML = calSettingsHtml(); layer.firstElementChild.style.animation = "none"; layer.querySelector(".db").scrollTop = st; render(); }
+  function goToDate() {
+    openLayer(`<div class="dialog" style="width:min(340px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">Go to date</span></div>
+      <div class="db"><input class="input" id="gd-date" type="date" value="${S.cal.date}" style="width:100%"></div>
+      <div class="df"><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="cal-gd">Go</button></div></div>`, l => l.querySelector("#gd-date").focus());
+  }
+
+  /* .ics import and export */
+  const ICS_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+  const icsD = s => s.replace(/-/g, "");
+  const icsDT = (s, m) => m >= 1440 ? icsDT(addIso(s, 1), m - 1440) : `${icsD(s)}T${String(Math.floor(m / 60)).padStart(2, "0")}${String(m % 60).padStart(2, "0")}00`;
+  function calExport() {
+    const evs = D.events.filter(ev => !evLocked(ev)), L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Chameleon//Calendar//EN", "CALSCALE:GREGORIAN"];
+    evs.forEach(ev => {
+      const end = ev.endDate || ev.date, r = ev.rrule;
+      L.push("BEGIN:VEVENT", `UID:${ev.id}@chameleon.app`, "SUMMARY:" + icsEsc(ev.title || ""));
+      if (ev.allDay) L.push("DTSTART;VALUE=DATE:" + icsD(ev.date), "DTEND;VALUE=DATE:" + icsD(addIso(end, 1)));
+      else L.push("DTSTART:" + icsDT(ev.date, ev.start), "DTEND:" + icsDT(end, ev.end));
+      if (r) L.push("RRULE:" + [`FREQ=${r.freq.toUpperCase()}`, r.interval > 1 ? "INTERVAL=" + r.interval : "", r.freq === "weekly" && r.days ? "BYDAY=" + r.days.map(k => ICS_DAYS[k]).join(",") : "", r.count ? "COUNT=" + r.count : "", r.until ? `UNTIL=${icsD(r.until)}T235959` : ""].filter(Boolean).join(";"));
+      (ev.exdates || []).forEach(x => L.push(ev.allDay ? "EXDATE;VALUE=DATE:" + icsD(x) : "EXDATE:" + icsDT(x, ev.start)));
+      if (ev.loc) L.push("LOCATION:" + icsEsc(ev.loc));
+      if (ev.desc) L.push("DESCRIPTION:" + icsEsc(ev.desc));
+      (ev.reminders || []).forEach(m => L.push("BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder", `TRIGGER:-PT${m}M`, "END:VALARM"));
+      L.push("END:VEVENT");
+    });
+    L.push("END:VCALENDAR");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([L.join("\r\n")], { type: "text/calendar" })); a.download = "chameleon-calendar.ics"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000); toast(`Exported ${evs.length} ${evs.length === 1 ? "event" : "events"}`);
+  }
+  function calImport() {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".ics,text/calendar";
+    inp.onchange = () => { const f = inp.files[0]; if (f) f.text().then(importIcs); };
+    inp.click();
+  }
+  function importIcs(txt) {
+    const un = s => s.replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1"), snap = calSnap(), cal = defCal();
+    const dt = v => { const m = v.match(/(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d{0,2}(Z)?)?/); if (!m) return null; if (!m[4]) return { date: `${m[1]}-${m[2]}-${m[3]}`, allDay: true };
+      if (m[6]) { const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])); return { date: iso(d), min: d.getHours() * 60 + d.getMinutes() }; }
+      return { date: `${m[1]}-${m[2]}-${m[3]}`, min: +m[4] * 60 + +m[5] }; };
+    let cur = null, alarm = false, n = 0;
+    txt.replace(/\r?\n[ \t]/g, "").split(/\r?\n/).forEach(line => {
+      const i = line.indexOf(":"); if (i < 0) return;
+      const key = line.slice(0, i).split(";")[0].toUpperCase(), val = line.slice(i + 1);
+      if (key === "BEGIN" && val === "VEVENT") { cur = { id: uid("e"), title: "", cal, reminders: [], exdates: [] }; return; }
+      if (!cur) return;
+      if (key === "BEGIN" && val === "VALARM") alarm = true;
+      else if (key === "END" && val === "VALARM") alarm = false;
+      else if (key === "END" && val === "VEVENT") {
+        const e = cur._end; delete cur._end;
+        if (cur.date) {
+          if (cur.allDay) { if (e && e.allDay && addIso(e.date, -1) > cur.date) cur.endDate = addIso(e.date, -1); }
+          else if (e && !e.allDay) { cur.end = e.min; if (e.date !== cur.date) { if (e.min === 0 && isoDiff(cur.date, e.date) === 1) cur.end = 1440; else cur.endDate = e.date; } }
+          else cur.end = Math.min(1440, cur.start + 60);
+          if (!cur.reminders.length) delete cur.reminders;
+          D.events.push(cur); n++;
+        }
+        cur = null;
+      } else if (alarm) { const m = key === "TRIGGER" && val.match(/-P(?:(\d+)W)?(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/); if (m) cur.reminders.push((+m[1] || 0) * 10080 + (+m[2] || 0) * 1440 + (+m[3] || 0) * 60 + (+m[4] || 0)); }
+      else if (key === "SUMMARY") cur.title = un(val);
+      else if (key === "LOCATION") cur.loc = un(val);
+      else if (key === "DESCRIPTION") cur.desc = un(val);
+      else if (key === "DTSTART") { const d = dt(val); if (d) { cur.date = d.date; if (d.allDay) cur.allDay = true; else cur.start = d.min; } }
+      else if (key === "DTEND") cur._end = dt(val);
+      else if (key === "EXDATE") val.split(",").forEach(x => { const d = dt(x); if (d) cur.exdates.push(d.date); });
+      else if (key === "RRULE") {
+        const p = {}; val.split(";").forEach(kv => { const [k, v] = kv.split("="); p[k] = v; });
+        const fr = (p.FREQ || "").toLowerCase();
+        if (["daily", "weekly", "monthly", "yearly"].includes(fr)) cur.rrule = { freq: fr, interval: +p.INTERVAL || 1, days: fr === "weekly" && p.BYDAY ? p.BYDAY.split(",").map(x => ICS_DAYS.indexOf(x.slice(-2))).filter(x => x >= 0) : undefined, count: +p.COUNT || undefined, until: p.UNTIL ? (dt(p.UNTIL) || {}).date : undefined };
+      }
+    });
+    closeLayer(); render();
+    n ? undoToast(`Imported ${n} ${n === 1 ? "event" : "events"}`, snap) : toast("No events found in that file");
+  }
+
+  /* reminders: a notification lands in the inbox when an event of today is about to start */
+  function calReminderTick() {
+    const now = nowMin(), fired = D.calFired = D.calFired || []; let hit = false;
+    calOccs(TODAY_ISO, TODAY_ISO).forEach(o => {
+      const ev = o.ev; if (ev.allDay || o.date !== TODAY_ISO || ev.rsvp === "no") return;
+      (ev.reminders || []).forEach(r => {
+        const k = o.key + "|" + r; if (fired.includes(k) || now < ev.start - r || now >= ev.start + 1) return;
+        fired.push(k); hit = true;
+        D.inbox.unshift({ id: Date.now() + fired.length, kind: "reminder", title: ev.title || "(No title)", body: `Starts at ${fmtT(ev.start)}${ev.loc ? " · " + ev.loc : ""}`, time: "now", unread: true, link: "pin/calendar" });
+        toast(`${ev.title || "(No title)"} starts at ${fmtT(ev.start)}`);
+      });
+    });
+    if (!hit) return;
+    const a = document.activeElement; if (!layer && !calPop && !(a && /INPUT|TEXTAREA/.test(a.tagName))) render(); else save();
+  }
+  setInterval(calReminderTick, 30000); setTimeout(calReminderTick, 1500);
+  setInterval(() => document.querySelectorAll(".cal-now").forEach(n => n.style.top = nowMin() / 60 * HOUR + "px"), 60000);
+
+  // keyboard shortcuts on the calendar page (Google Calendar's keys); returns true when handled
+  function calKey(e) {
+    const k = e.key, pk = calPop && calPop.dataset.key, views = { d: "day", w: "week", m: "month", y: "year", s: "schedule", x: "4day" };
+    const act = { t: () => calGoto(TODAY_ISO), j: () => calStep(1), n: () => calStep(1), ArrowRight: () => calStep(1), k: () => calStep(-1), p: () => calStep(-1), ArrowLeft: () => calStep(-1), c: () => openNew(), g: goToDate, "/": () => { const q = document.getElementById("cal-q"); q && q.focus(); } };
+    if (pk && k === "e") openEditor(pk);
+    else if (pk && (k === "Delete" || k === "Backspace")) delOcc(pk);
+    else if (views[k]) setView(views[k]);
+    else if (act[k]) act[k]();
+    else return false;
+    e.preventDefault(); return true;
+  }
+
+  // pointer interactions: drag on empty time to create, drag events to move (also across days), drag the bottom edge to resize;
+  // in month view and the all-day row, drag across days to create a multi-day event or drag a chip to another day
+  let cdrag = null, calSwallow = 0;
+  const snap15 = m => Math.round(m / 15) * 15;
+  const yToMin = (col, y) => Math.max(0, Math.min(1440, (y - col.getBoundingClientRect().top) / HOUR * 60));
+  const colAt = x => [...document.querySelectorAll(".cal-main .cal-col")].find(c => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
+  const dayAt = (x, y) => [...document.querySelectorAll(".cal-main [data-day]:not(.cal-col)")].find(c => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right && y >= r.top && y < r.bottom; });
+  document.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || S.route !== "pin/calendar") return;
+    const st = e.target.closest(".cal-todo[data-sched]");
+    if (st) { e.preventDefault(); cdrag = { mode: "todo", id: st.dataset.sched, x0: e.clientX, y0: e.clientY }; return; }
+    const main = e.target.closest(".cal-main"), inPop = e.target.closest(".cal-pop"), item = e.target.closest("[data-occ],[data-task]");
+    if (item && (main || inPop)) {
+      const o = item.dataset.occ && occFind(item.dataset.occ), drag = main && !inPop && /cal-(ev|chip)/.test(item.className) && (item.dataset.task || (o && !evLocked(o.ev)));
+      cdrag = { mode: !drag ? "tap" : e.target.classList.contains("cal-rs") ? "resize" : item.classList.contains("cal-ev") ? "move" : "dmove", el: item, o, task: item.dataset.task, x0: e.clientX, y0: e.clientY };
+      if (drag) e.preventDefault();
+      return;
+    }
+    if (!main || menuEl || e.target.closest("button,a,input,select")) return;
+    if (calPop) { closeCalPop(); calSwallow = Date.now(); return; } // a click next to an open popover only closes it
+    const col = e.target.closest(".cal-col"), cell = !col && e.target.closest("[data-day]");
+    if (col) { e.preventDefault(); cdrag = { mode: "create", col, day: col.dataset.day, m0: Math.floor(yToMin(col, e.clientY) / 15) * 15, x0: e.clientX, y0: e.clientY }; }
+    else if (cell) { e.preventDefault(); cdrag = { mode: "dcreate", day: cell.dataset.day, end: cell.dataset.day, x0: e.clientX, y0: e.clientY }; }
+  });
+  document.addEventListener("pointermove", e => {
+    const d = cdrag; if (!d || d.mode === "tap") return;
+    if (!d.moved) { if (Math.abs(e.clientX - d.x0) + Math.abs(e.clientY - d.y0) < 5) return; d.moved = true; document.body.classList.add("cal-dragging"); }
+    if (d.mode === "todo") { // a ToDo from the side panel: a time slot in day / week, or a whole day (month, all-day row)
+      const t = todo(d.id); if (!t) return;
+      if (!d.float) { d.float = document.createElement("div"); d.float.className = "cal-float"; d.float.innerHTML = ic("circle", 12) + esc(t.text); document.body.appendChild(d.float); if (S.cal.side) { S.cal.side = false; document.querySelector(".cal-page").classList.remove("side-on"); } }
+      d.float.style.left = e.clientX + 12 + "px"; d.float.style.top = e.clientY + 10 + "px";
+      document.querySelectorAll(".cal-main .drop-hi,.cal-main .cal-ev.ghost").forEach(x => x.classList.contains("ghost") ? x.remove() : x.classList.remove("drop-hi"));
+      const tg = document.getElementById("cal-tg"), r = tg && tg.getBoundingClientRect(), col = r && e.clientY >= r.top && e.clientY < r.bottom && colAt(e.clientX);
+      d.col = col || null; d.cell = null;
+      if (col) {
+        const dur = t.dur || 60; d.s = Math.min(1440 - 15, Math.floor(yToMin(col, e.clientY) / 15) * 15);
+        const g = document.createElement("div"); g.className = "cal-ev ghost";
+        Object.assign(g.style, { top: d.s / 60 * HOUR + "px", height: Math.min(dur, 1440 - d.s) / 60 * HOUR - 2 + "px", left: "1px", width: "calc(100% - 4px)" });
+        g.innerHTML = `<b>${esc(t.text)}</b><span>${fmtT(d.s)}${t.dur ? " – " + fmtT(Math.min(1440, d.s + dur)) : ""}</span>`; col.appendChild(g);
+      } else { const cell = dayAt(e.clientX, e.clientY); if (cell) { d.cell = cell.dataset.day; cell.classList.add("drop-hi"); } }
+      return;
+    }
+    if (d.mode === "move" || d.mode === "resize") {
+      const ev = d.o.ev, dm = snap15((e.clientY - d.y0) / HOUR * 60), dur = ev.end - ev.start;
+      if (d.mode === "resize") { d.s = ev.start; d.e = Math.max(ev.start + 15, Math.min(1440, ev.end + dm)); d.day = d.o.date; }
+      else { d.s = Math.max(0, Math.min(1440 - dur, ev.start + dm)); d.e = d.s + dur; const col = colAt(e.clientX); d.day = col ? col.dataset.day : d.o.date; if (col && d.el.parentNode !== col) col.appendChild(d.el); }
+      Object.assign(d.el.style, { top: d.s / 60 * HOUR + "px", height: Math.max(d.e - d.s, 20) / 60 * HOUR - 2 + "px", left: "1px", width: "calc(100% - 4px)" });
+      d.el.classList.add("dragging"); const t = d.el.querySelector("span"); if (t) t.textContent = `${fmtT(d.s)} – ${fmtT(d.e)}`;
+    } else if (d.mode === "create") {
+      const m = yToMin(d.col, e.clientY); d.s = Math.min(d.m0, Math.floor(m / 15) * 15); d.e = Math.max(d.m0 + 15, Math.ceil(m / 15) * 15);
+      let g = d.col.querySelector(".cal-ev.ghost"); if (!g) { g = document.createElement("div"); g.className = "cal-ev ghost"; d.col.appendChild(g); }
+      Object.assign(g.style, { top: d.s / 60 * HOUR + "px", height: (d.e - d.s) / 60 * HOUR - 2 + "px", left: "1px", width: "calc(100% - 4px)" });
+      g.innerHTML = `<b>(No title)</b><span>${fmtT(d.s)} – ${fmtT(d.e)}</span>`;
+    } else {
+      const cell = dayAt(e.clientX, e.clientY); if (!cell) return;
+      if (d.mode === "dmove") { d.target = cell.dataset.day; d.el.classList.add("drag-src"); }
+      else d.end = cell.dataset.day;
+      const [a, b] = d.mode === "dmove" ? [d.target, d.target] : [d.day, d.end].sort();
+      document.querySelectorAll(".cal-main [data-day]:not(.cal-col)").forEach(x => x.classList.toggle("drop-hi", x.dataset.day >= a && x.dataset.day <= b));
+    }
+  });
+  document.addEventListener("pointerup", () => {
+    const d = cdrag; if (!d) return;
+    cdrag = null; document.body.classList.remove("cal-dragging"); calSwallow = Date.now();
+    if (d.mode === "todo") {
+      if (d.float) d.float.remove();
+      if (!d.moved) { calSwallow = 0; return; } // a plain click opens the duration menu
+      document.querySelectorAll(".cal-main .drop-hi,.cal-main .cal-ev.ghost").forEach(x => x.classList.contains("ghost") ? x.remove() : x.classList.remove("drop-hi"));
+      const t = todo(d.id), day = d.col ? d.col.dataset.day : d.cell, start = d.col ? d.s : null;
+      if (!t || !day) return;
+      return t.dur ? scheduleTodo(d.id, day, start, t.dur) : askDuration(d.id, day, start);
+    }
+    if (!d.moved) {
+      if (d.mode === "create") { const s = Math.floor(d.m0 / 30) * 30; return startQuick({ date: d.day, start: s, end: Math.min(1440, s + CP().duration) }); }
+      if (d.mode === "dcreate") return startQuick({ date: d.day, allDay: true });
+      if (d.task) return openTaskPop(d.el, d.task);
+      if (d.o) return openOccPop(d.el, d.o.key);
+      return;
+    }
+    if (d.mode === "create") return startQuick({ date: d.day, start: d.s, end: d.e });
+    if (d.mode === "dcreate") { const [a, b] = [d.day, d.end].sort(); return startQuick({ date: a, end: b, allDay: true }); }
+    if (d.mode === "dmove") return !d.target ? render() : d.task ? moveTask(d.task, d.target) : patchOcc(d.o, { shift: isoDiff(d.o.date, d.target) });
+    patchOcc(d.o, { day: d.day, s: d.s, e: d.e });
+  });
+  // the click that ends a press on the calendar was already handled on pointerup
+  document.addEventListener("click", e => { if (Date.now() - calSwallow < 400 && e.target.closest(".cal-page,.cal-pop")) { calSwallow = 0; e.stopPropagation(); } }, true);
+  document.addEventListener("contextmenu", e => {
+    const el = e.target.closest(".cal-main [data-occ]"); if (!el) return;
+    e.preventDefault(); occMenu({ getBoundingClientRect: () => ({ left: e.clientX, top: e.clientY, bottom: e.clientY }) }, el.dataset.occ);
+  });
+  document.addEventListener("input", e => {
+    if (e.target.id !== "cal-q") return;
+    const pos = e.target.selectionStart; S.cal.q = e.target.value; render();
+    const q = document.getElementById("cal-q"); if (q) { q.focus(); q.setSelectionRange(pos, pos); }
+  });
+  document.addEventListener("change", e => {
+    const id = e.target.id, ed = S.cal.ed && S.cal.ed.d;
+    if (ed && id === "ce-rep") { syncEd(); setRep(e.target.value); redrawEd(); }
+    else if (ed && id === "ce-freq") { syncEd(); if (ed.rrule.freq === "weekly" && !ed.rrule.days) ed.rrule.days = [fromIso(ed.date).getDay()]; redrawEd(); }
+    else if (ed && id === "ce-start") { const dur = ed.end - ed.start; syncEd(); ed.end = Math.min(1440, ed.start + dur); redrawEd(); }
+    else if (ed && id === "ce-date") { const span = ed.endDate ? isoDiff(ed.date, ed.endDate) : 0; syncEd(); if (span) ed.endDate = addIso(ed.date, span); if (ed.rrule && repKey(ed.rrule, ed.date) === "custom" && !S.cal.custom && ed.rrule.days && ed.rrule.days.length === 1) ed.rrule.days = [fromIso(ed.date).getDay()]; redrawEd(); }
+    else if (ed && (id === "ce-end" || id === "ce-enddate")) redrawEd();
+    else if (id === "calp-dur" || id === "calp-rem") { CP()[id === "calp-dur" ? "duration" : "reminder"] = +e.target.value; save(); }
+    else if (id === "calp-ws" || id === "calp-we") { CP()[id === "calp-ws" ? "workStart" : "workEnd"] = inputToMin(e.target.value); render(); }
+  });
+
+  const CAL_A = {
+    "cal-today": () => calGoto(TODAY_ISO),
+    "cal-step": (v) => calStep(+v),
+    "cal-open": (v) => calGoto(v, "day"),
+    "cal-goto": (v) => calGoto(v),
+    "cal-month": (v) => calGoto(v, "month"),
+    "cal-mini": (v) => { const m = fromIso(S.cal.mini || S.cal.date); S.cal.mini = iso(new Date(m.getFullYear(), m.getMonth() + +v, 1)); render(); },
+    "cal-q-clear": () => { S.cal.q = ""; render(); },
+    "cal-side": () => { S.cal.side = !S.cal.side; render(); },
+    "cal-todos-fold": () => { store.set("calTodos", !store.get("calTodos", true)); render(); },
+    "cal-tdmenu": (v, el) => { const t = todo(v); if (!t) return;
+      openMenu(el, [{ head: "Duration" }, ...DUR_OPTS.map(m => ({ icon: "timer", label: fmtDur(m), check: t.dur === m, run: () => { t.dur = m; render(); } })), "-", { icon: "timer-off", label: "No duration", check: !t.dur, run: () => { delete t.dur; render(); } }]); },
+    "cal-tdur": (v) => { const p = S.cal.pend; if (!p) return;
+      const m = v === "custom" ? Math.round((parseFloat((calPop.querySelector("#cd-h").value || "").replace(",", ".")) || 0) * 4) * 15 : +v;
+      if (!m) { calPop.querySelector("#cd-h").focus(); return; }
+      S.cal.pend = null; scheduleTodo(p.id, p.date, p.start, Math.min(m, 1440)); },
+    "cal-viewmenu": (v, el) => { const P = CP(), tog = k => () => { P[k] = !P[k]; render(); };
+      openMenu(el, CAL_VIEWS.map(([k, l, key, icon]) => ({ icon, label: l, check: S.cal.view === k && !S.cal.q, kbd: [key], run: () => setView(k) }))
+        .concat(["-", { icon: "calendar-days", label: "Show weekends", check: P.weekends, run: tog("weekends") }, { icon: "calendar-off", label: "Show declined events", check: P.declined, run: tog("declined") }, { icon: "circle-check", label: "Show completed ToDos", check: P.doneTasks, run: tog("doneTasks") }])); },
+    "cal-more": (v, el) => openMenu(el, [
+      { icon: "calendar-search", label: "Go to date", kbd: ["G"], run: goToDate },
+      { icon: "settings", label: "Settings", run: () => A["cal-settings"]() }, "-",
+      { icon: "upload", label: "Import .ics", run: calImport },
+      { icon: "download", label: "Export .ics", run: calExport }, "-",
+      { icon: "keyboard", label: "Keyboard shortcuts", run: openShortcuts }]),
+    "cal-settings": () => openLayer(calSettingsHtml()),
+    "calp": (k) => { CP()[k] = !CP()[k]; redrawSettings(); },
+    "calp-set": (v) => { const [k, x] = v.split("|"); CP()[k] = x === "true" ? true : x === "false" ? false : +x; redrawSettings(); },
+    "cal-import": () => calImport(),
+    "cal-export": () => calExport(),
+    "cal-gd": () => { const v = layer.querySelector("#gd-date").value; closeLayer(); if (v) { S.cal.scroll = true; calGoto(v); } },
+    "cal-create": (v, el) => openMenu(el, [{ icon: "calendar-plus", label: "Event", kbd: ["C"], run: () => openNew() }, { icon: "headphones", label: "Focus time", run: () => openNew("focus") }, { icon: "circle", label: "Task (ToDo)", run: () => openNew("task") }]),
+    "cal-vis": (v) => { const c = calOf(v); c.hidden = !c.hidden; render(); },
+    "cal-tasks": () => { CP().tasksHidden = !CP().tasksHidden; render(); },
+    "cal-add": () => openCalDialog(null),
+    "cal-cmenu": (v, el) => { const c = calOf(v), own = D.calendars.filter(x => !x.other);
+      openMenu(el, [
+        { icon: "eye", label: "Display this only", run: () => { D.calendars.forEach(x => x.hidden = x.id !== v); CP().tasksHidden = true; render(); } },
+        { icon: c.hidden ? "eye" : "eye-off", label: c.hidden ? "Show" : "Hide", run: () => A["cal-vis"](v) },
+        { icon: "settings-2", label: "Settings…", run: () => openCalDialog(v) },
+        { head: "Colour" }, ...Object.keys(CAL_COLORS).map(k => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${CAL_COLORS[k]}"></i></span>`, label: CAL_COLOR_NAMES[k], check: c.color === k, run: () => { c.color = k; render(); } })),
+        ...(c.readonly ? [] : ["-", { icon: "trash-2", color: "var(--danger)", label: "Delete calendar…", run: () => {
+          if (own.length < 2) return toast("Keep at least one calendar");
+          const n = D.events.filter(e => e.cal === v).length;
+          confirmDelete("Delete calendar?", `“${c.name}”${n ? ` and its ${n} ${n === 1 ? "event" : "events"}` : ""} will be removed. This can’t be undone.`, () => { D.calendars = D.calendars.filter(x => x.id !== v); D.events = D.events.filter(e => e.cal !== v); render(); toast("Calendar deleted"); });
+        } }])]); },
+    "cc-color": (v) => { S.cal.cdraft.name = layer.querySelector("#cc-name").value; S.cal.cdraft.color = v; layer.innerHTML = calDialogHtml(); layer.firstElementChild.style.animation = "none"; },
+    "cc-save": () => saveCalDialog(),
+    "cal-daypop": (v, el) => { const occs = calOccs(v, v), tasks = calTasks(v, v);
+      openCalPop(el, `<div class="cp-acts"><span class="cp-dayt">${fmtLong(v)}</span><button class="ib" data-a="cal-open:${v}" title="Open day">${ic("calendar-1", 15)}</button><button class="ib" data-a="cal-popx" title="Close  Esc">${ic("x", 15)}</button></div><div class="cp-day">${occs.map(o => occChip(o, "", isBar(o))).join("")}${tasks.map(x => taskChip(x.t)).join("")}</div>`, "day"); },
+    "cal-popx": () => closeCalPop(),
+    "cal-edit": (v) => openEditor(v),
+    "cal-del": (v) => delOcc(v),
+    "cal-omenu": (v, el) => occMenu(el, v),
+    "cal-join": (v) => toast("Opening " + v + " (prototype)"),
+    "cal-rsvp": (v) => { const [key, k] = v.split("|"), o = occFind(key); if (!o) return; o.ev.rsvp = k; render(); if (calPop) calPop.innerHTML = occPopHtml(o); toast({ yes: "You're going", no: "Declined", maybe: "Maybe" }[k]); },
+    "cal-task-done": (v) => { const t = todo(v); if (!t) return; t.done = !t.done; closeCalPop(true); render(); toast(t.done ? "ToDo completed" : "ToDo reopened"); },
+    "cal-task-del": (v) => { closeCalPop(true); trashItem("todo", v); render(); },
+    "cal-undo": (v, el) => { if (!calUndo) return; const s = JSON.parse(calUndo); D.events = s.events; D.todos = s.todos; calUndo = null; el.closest(".toast").remove(); closeCalPop(true); render(); toast("Undone"); },
+    "cal-scope": () => { const v = layer.querySelector("input[name=scope]:checked").value, cb = S.cal.scopeCb; S.cal.scopeCb = null; closeLayer(); if (cb) cb(v); },
+    "cq-type": (v) => { S.cal.ghost.type = v; redrawQuick(); },
+    "cq-cal": (v, el) => openMenu(el, D.calendars.filter(c => !c.readonly).map(c => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${calCol(c)}"></i></span>`, label: c.name, check: S.cal.ghost.cal === c.id, run: () => { S.cal.ghost.cal = c.id; redrawQuick(); } }))),
+    "cq-save": () => saveQuick(),
+    "cq-more": () => { const g = S.cal.ghost, title = calPop.querySelector("#cq-title").value.trim(); openEditor(null, newEvent(g, title)); },
+    "ce-save": () => saveEd(),
+    "ce-del": () => { const { d, occ } = S.cal.ed; delOcc(occ || d.id + "@" + d.date); },
+    "ce-type": (v) => { syncEd(); const d = S.cal.ed.d; d.type = v; if (v === "focus" && !d.title) d.title = "Focus time"; if (v === "task") return saveEd(); redrawEd(); },
+    "ce-allday": () => { syncEd(); const d = S.cal.ed.d; d.allDay = !d.allDay; delete d.endDate; if (!d.allDay && d.start == null) { d.start = 540; d.end = 540 + CP().duration; } redrawEd(); },
+    "ce-multi": () => { syncEd(); const d = S.cal.ed.d; if (d.endDate) delete d.endDate; else d.endDate = addIso(d.date, 1); redrawEd(); },
+    "ce-wd": (v) => { syncEd(); const r = S.cal.ed.d.rrule, k = +v; r.days = r.days || [fromIso(S.cal.ed.d.date).getDay()]; r.days = r.days.includes(k) ? (r.days.length > 1 ? r.days.filter(x => x !== k) : r.days) : r.days.concat(k); redrawEd(); },
+    "ce-ends": (v) => { syncEd(); const r = S.cal.ed.d.rrule; delete r.until; delete r.count; if (v === "on") r.until = addIso(S.cal.ed.d.date, 90); if (v === "after") r.count = 10; redrawEd(); },
+    "ce-guest-x": (v) => { syncEd(); S.cal.ed.d.guests = S.cal.ed.d.guests.filter(g => g.name !== v); redrawEd(); },
+    "ce-meet": () => { syncEd(); S.cal.ed.d.meet = MEET(); redrawEd(); },
+    "ce-meet-x": () => { syncEd(); delete S.cal.ed.d.meet; redrawEd(); },
+    "ce-rem-add": () => { syncEd(); const d = S.cal.ed.d; d.reminders.push(d.allDay ? 1440 : CP().reminder || 10); redrawEd(); },
+    "ce-rem-x": (v) => { syncEd(); S.cal.ed.d.reminders.splice(+v, 1); redrawEd(); },
+    "ce-cal": (v, el) => { syncEd(); openMenu(el, D.calendars.filter(c => !c.readonly).map(c => ({ lead: `<span style="width:15px;display:grid;place-items:center"><i class="cal-dot" style="--c:${calCol(c)}"></i></span>`, label: c.name, check: S.cal.ed.d.cal === c.id, run: () => { S.cal.ed.d.cal = c.id; redrawEd(); } }))); },
+    "ce-color": (v) => { syncEd(); if (v === "none") delete S.cal.ed.d.color; else S.cal.ed.d.color = v; redrawEd(); },
+    "ce-busy": (v) => { syncEd(); S.cal.ed.d.busy = v; redrawEd(); },
+  };
+
   /* ---------- render ---------- */
   function render() {
     document.documentElement.setAttribute("data-theme", S.theme);
@@ -993,6 +1872,7 @@
     });
     if (sbKeep) root.querySelector(".sidebar").scrollTop = sbKeep;
     if (sameRoute) { const s = root.querySelector(".content .scroll"); if (s) s.scrollTop = keep; }
+    calAfterRender();
     const log = document.getElementById("chatlog"); if (log) log.scrollTop = log.scrollHeight;
     const selSticky = root.querySelector(".sticky-card.sel"); if (selSticky && !sameRoute) selSticky.scrollIntoView({ block: "nearest" });
     const alog = document.getElementById("asstlog"); if (alog) alog.scrollTop = alog.scrollHeight;
@@ -1009,7 +1889,8 @@
     let closed = false;
     for (const id in branches) if (S.openFolders.has(id) && !(route + "/").startsWith(branches[id] + "/")) { S.openFolders.delete(id); closed = true; }
     if (closed) store.set("openFolders", [...S.openFolders]);
-    S.route = route; closeMenu(); render();
+    if (route === "pin/calendar" && S.route !== route) S.cal.scroll = true;
+    S.route = route; closeMenu(); closeCalPop(true); render();
     if (route === "ai/new") setTimeout(() => { const p = document.getElementById("prompt"); p && p.focus(); });
   }
 
@@ -1038,7 +1919,7 @@
   let layer = null;
   function closeLayer() { if (layer) { layer.remove(); layer = null; } }
   function openLayer(html, onMount) {
-    closeLayer(); closeMenu();
+    closeLayer(); closeMenu(); closeCalPop(true);
     layer = document.createElement("div"); layer.className = "scrim"; layer.innerHTML = html;
     layer.addEventListener("mousedown", e => { if (e.target === layer) closeLayer(); });
     document.body.appendChild(layer); onMount && onMount(layer);
@@ -1050,6 +1931,7 @@
   function draftChips() {
     const d = S.draft, pr = prio(d.prio), f = folder(d.folder);
     return `<span class="chip${d.due ? "" : " is-empty"}" data-a="d-due">${ic("calendar", 13)}${d.due || "Due date"}</span>
+      <span class="chip${d.dur ? "" : " is-empty"}" data-a="d-dur">${ic("timer", 13)}${d.dur ? fmtDur(d.dur) : "Duration"}</span>
       <span class="chip${pr.id ? "" : " is-empty"}" data-a="d-prio">${ic(pr.icon, 13, pr.color)}${pr.id ? pr.name : "Priority"}</span>
       <span class="chip${f ? "" : " is-empty"}" data-a="d-folder">${f ? folderIcon(f, 13) : ic("folder-plus", 13)}${f ? esc(f.name) : "No folder"}</span>`;
   }
@@ -1058,20 +1940,29 @@
     const pc = layer && layer.querySelector("#dcrumb"); if (pc) pc.innerHTML = draftCrumb();
   }
   const draftCrumb = () => { const f = folder(S.draft.folder); return f ? folderIcon(f, 13) + esc(f.name) : ic("list-checks", 13) + "ToDos"; };
-  function openTodoDialog(preset = {}) {
-    S.draft = Object.assign({ due: null, prio: 0, folder: null, more: false }, preset);
+  // new ToDo, or (with editId) the same dialog filled with an existing ToDo to change any of its fields
+  function openTodoDialog(preset = {}, editId) {
+    const t = editId && todo(editId); if (editId && !t) return;
+    S.draft = t ? { id: t.id, text: t.text, due: t.due || null, dur: t.dur || null, prio: t.prio || 0, folder: t.folder || null, more: false } : Object.assign({ due: null, dur: null, prio: 0, folder: null, more: false }, preset);
     openLayer(`<div class="dialog" role="dialog" aria-modal="true">
-      <div class="dh"><span class="pill-crumb" id="dcrumb">${draftCrumb()}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">New ToDo</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
-      <div class="db"><input class="big" id="dtitle" placeholder="What needs to be done?" autocomplete="off">
+      <div class="dh"><span class="pill-crumb" id="dcrumb">${draftCrumb()}</span><span class="crumb-sep">›</span><span style="font:var(--type-ui);font-weight:600">${t ? "Edit ToDo" : "New ToDo"}</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db"><input class="big" id="dtitle" placeholder="What needs to be done?" autocomplete="off" value="${t ? esc(t.text) : ""}">
         <div id="dchips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${draftChips()}</div></div>
-      <div class="df"><span style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font:var(--type-small)"><button class="switch" data-a="d-more" role="switch"></button>Create more</span><span style="flex:1"></span>
-        <button class="btn primary" data-a="create">Create ToDo ${kbd([MOD, "⏎"])}</button></div></div>`,
-      l => l.querySelector("#dtitle").focus());
+      <div class="df">${t ? `<button class="btn" data-a="todo-done:${t.id}">${ic(t.done ? "circle" : "circle-check", 14)}${t.done ? "Mark as open" : "Mark as done"}</button>` : `<span style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font:var(--type-small)"><button class="switch" data-a="d-more" role="switch"></button>Create more</span>`}<span style="flex:1"></span>
+        ${t ? `<button class="btn" data-a="close">Cancel</button>` : ""}<button class="btn primary" data-a="create">${t ? "Save" : "Create ToDo"} ${kbd([MOD, "⏎"])}</button></div></div>`,
+      l => { const i = l.querySelector("#dtitle"); i.focus(); if (t) i.setSelectionRange(i.value.length, i.value.length); });
   }
   function submitCreate() {
     const d = S.draft, input = layer.querySelector("#dtitle"), text = input.value.trim();
     if (!text) { input.focus(); return; }
-    D.todos.unshift({ id: uid("t"), text, due: d.due, prio: d.prio, folder: d.folder });
+    if (d.id) { // editing: every field from the dialog; calendar blocks of this ToDo keep its title
+      const t = todo(d.id); if (!t) { closeLayer(); return; }
+      Object.assign(t, { text, due: d.due || undefined, dur: d.dur || undefined, prio: d.prio, folder: d.folder });
+      D.events.forEach(e => { if (e.todo === t.id) e.title = text; });
+      if (d.folder) revealFolder(d.folder);
+      closeLayer(); render(); toast("ToDo saved"); return;
+    }
+    D.todos.unshift({ id: uid("t"), text, due: d.due, dur: d.dur || undefined, prio: d.prio, folder: d.folder });
     if (d.folder) revealFolder(d.folder);
     toast("ToDo created" + (d.folder ? " in " + folderName(d.folder) : ""));
     if (d.more) { input.value = ""; input.focus(); render(); }
@@ -1118,13 +2009,23 @@
     const x = find(t, id); if (!x) return;
     const T = TYPES[t];
     openMenu(el, [
-      { icon: T.icon(x), label: "Open", run: () => openItem(t, id) },
+      ...(t === "todo" ? todoMenuItems(el, x) : [{ icon: T.icon(x), label: "Open", run: () => openItem(t, id) }]),
       { icon: "folder-input", label: "Move to folder…", run: () => folderPicker(el, x.folder || null, fid => moveItem(t, id, fid)) },
       { icon: "star", color: x.starred ? "var(--warning)" : "", label: x.starred ? "Unstar" : "Star", run: () => { x.starred = !x.starred; render(); } },
       ...(t === "todo" ? [{ icon: x.done ? "circle" : "circle-check", label: x.done ? "Mark as open" : "Mark as done", run: () => { x.done = !x.done; render(); } }] : []),
       "-",
       { icon: "trash-2", color: "var(--danger)", label: "Move to trash", run: () => { const here = S.route === T.route(x) && T.fam === "content"; trashItem(t, id); here ? go(t === "note" ? "work/notes" : t === "canvas" ? "work/canvas" : t === "chat" ? "ai/new" : t === "file" ? "files/trash" : S.lastRoute[S.curProd]) : render(); } },
     ]);
+  }
+  // ToDo menu: the dialog for everything, plus each field on its own
+  function todoMenuItems(el, x) {
+    const set = (k, v) => { if (v == null) delete x[k]; else x[k] = v; render(); };
+    return [
+      { icon: "pencil", label: "Edit…", run: () => openTodoDialog({}, x.id) },
+      { icon: "calendar", label: "Due date" + (x.due ? "  ·  " + x.due : "") + "…", run: () => openMenu(el, [["Today", 0], ["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7]].map(([l, n]) => ({ icon: "calendar", label: l + "  ·  " + plusDays(n), check: x.due === plusDays(n), run: () => set("due", plusDays(n)) })).concat(["-", { icon: "calendar-x", label: "No date", check: !x.due, run: () => set("due", null) }])) },
+      { icon: "timer", label: "Duration" + (x.dur ? "  ·  " + fmtDur(x.dur) : "") + "…", run: () => openMenu(el, DUR_OPTS.map(m => ({ icon: "timer", label: fmtDur(m), check: x.dur === m, run: () => set("dur", m) })).concat(["-", { icon: "timer-off", label: "No duration", check: !x.dur, run: () => set("dur", null) }])) },
+      { icon: prio(x.prio).icon, color: prio(x.prio).color, label: "Priority" + (prio(x.prio).id ? "  ·  " + prio(x.prio).name : "") + "…", run: () => openMenu(el, D.priorities.map(p => ({ icon: p.icon, color: p.color, label: p.name, check: (x.prio || 0) === p.id, run: () => set("prio", p.id) }))) },
+    ];
   }
   function openItem(t, id) {
     if (t === "deck") return A.study(id);
@@ -1240,6 +2141,7 @@
     const out = [];
     const add = (group, icon, label, run, k) => out.push({ group, icon, label, run, kbd: k });
     add("Actions", "circle", "Create ToDo", () => openTodoDialog({ folder: ctxFolder() }), ["C"]);
+    add("Actions", "calendar-plus", "Create event", () => { go("pin/calendar"); openNew(); });
     add("Actions", "file-text", "Create note", () => createItem("note", ctxFolder()));
     add("Actions", "folder-plus", "Create folder", () => createItem("folder", ctxFolder()));
     add("Actions", "folder-kanban", "Create project folder", () => createItem("project", ctxFolder()));
@@ -1282,7 +2184,8 @@
       l => { const b = l.querySelector("#confirm-ok"); b.focus(); b.addEventListener("click", () => { closeLayer(); onOk(); }); });
   }
   function openShortcuts() {
-    const rows = [["Search / command menu", [MOD, "S"]], ["Create something", ["C"]], ["Toggle sidebar", ["["]], ["Plan / Work / Learn / Files / AI", ["1", "–", "5"]], ["Settings", [","]], ["Close dialog or menu", ["Esc"]], ["Create from dialog", [MOD, "⏎"]], ["AI assistant", ["A"]], ["Element actions", ["Right-click"]], ["Move into a folder", ["Drag"]]];
+    const rows = [["Search / command menu", [MOD, "S"]], ["Create something", ["C"]], ["Toggle sidebar", ["["]], ["Plan / Work / Learn / Files / AI", ["1", "–", "5"]], ["Settings", [","]], ["Close dialog or menu", ["Esc"]], ["Create from dialog", [MOD, "⏎"]], ["AI assistant", ["A"]], ["Element actions", ["Right-click"]], ["Move into a folder", ["Drag"]],
+      ["Calendar: day / week / month / year", ["D", "W", "M", "Y"]], ["Calendar: schedule / 4 days", ["S", "X"]], ["Calendar: today / next / previous", ["T", "J", "K"]], ["Calendar: new / edit / delete event", ["C", "E", "Del"]], ["Calendar: search / go to date", ["/", "G"]]];
     openLayer(`<div class="dialog" style="width:min(440px,calc(100vw - 32px))"><div class="dh"><span style="font:var(--type-heading)">Keyboard shortcuts</span><span style="flex:1"></span><button class="ib" data-a="close">${ic("x")}</button></div><div class="db">${rows.map(([l, k]) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)"><span style="color:var(--text-secondary)">${l}</span><span style="display:flex;gap:3px">${kbd(k)}</span></div>`).join("")}</div></div>`);
   }
 
@@ -1367,6 +2270,8 @@
     qcfam: (v, el) => { const [fam, fid] = v.split("|"); quickCreate(el, fid, [fam]); },
     close: () => closeLayer(),
     create: () => submitCreate(),
+    "todo-edit": (v) => openTodoDialog({}, v),
+    "todo-done": (v) => { const t = todo(v); if (!t) return; t.done = !t.done; closeLayer(); render(); toast(t.done ? "ToDo done" : "ToDo reopened"); },
     toast: (v) => toast(v),
     upload: () => toast("Upload started"),
     study: (v) => { S.study = { deck: v, i: 0, flipped: false, good: 0 }; go("wiki/flashcards/" + v); },
@@ -1496,14 +2401,17 @@
     usermenu: (v, el) => openMenu(el, [{ icon: "user-round", label: "Profile", run: () => go("settings/profile") }, { icon: "palette", label: "Preferences", run: () => go("settings/preferences") }, { icon: "keyboard", label: "Keyboard shortcuts", run: openShortcuts }, "-", { icon: "log-out", label: "Sign out", run: () => toast("Signed out (prototype)") }]),
     "d-prio": (v, el) => openMenu(el, D.priorities.map(p => ({ icon: p.icon, color: p.color, label: p.name, check: S.draft.prio === p.id, run: () => { S.draft.prio = p.id; refreshDraftChips(); } }))),
     "d-due": (v, el) => openMenu(el, [["Today", 0], ["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7]].map(([l, n]) => ({ icon: "calendar", label: l + "  ·  " + plusDays(n), check: S.draft.due === plusDays(n), run: () => { S.draft.due = plusDays(n); refreshDraftChips(); } })).concat(["-", { icon: "calendar-x", label: "No date", check: !S.draft.due, run: () => { S.draft.due = null; refreshDraftChips(); } }])),
+    "d-dur": (v, el) => openMenu(el, DUR_OPTS.map(m => ({ icon: "timer", label: fmtDur(m), check: S.draft.dur === m, run: () => { S.draft.dur = m; refreshDraftChips(); } })).concat(["-", { icon: "timer-off", label: "No duration", check: !S.draft.dur, run: () => { S.draft.dur = null; refreshDraftChips(); } }])),
     "d-folder": (v, el) => folderPicker(el, S.draft.folder, fid => { S.draft.folder = fid; refreshDraftChips(); }),
     "d-more": (v, el) => { S.draft.more = !S.draft.more; el.classList.toggle("on", S.draft.more); },
   };
+  Object.assign(A, CAL_A);
 
   document.addEventListener("click", e => {
     const mi = e.target.closest("[data-mi]");
     if (mi) { const it = menuItems[+mi.dataset.mi]; closeMenu(); it && it.run && it.run(); return; }
     if (menuEl && !e.target.closest(".menu")) { const wasOpen = menuEl; closeMenu(); if (wasOpen && !e.target.closest("[data-a]")) return; }
+    if (calPop && !e.target.closest(".cal-pop,.scrim,.toast")) { closeCalPop(); if (!e.target.closest("[data-a]")) return; }
     const el = e.target.closest("[data-a]");
     if (!el) return;
     e.stopPropagation();
@@ -1593,7 +2501,14 @@
   document.addEventListener("keydown", e => {
     const typing = /INPUT|TEXTAREA/.test(e.target.tagName) || e.target.isContentEditable;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); layer ? closeLayer() : openPalette(); return; }
-    if (e.key === "Escape") { if (menuEl) closeMenu(); else if (layer) closeLayer(); else if (typing) e.target.blur(); return; }
+    if (e.key === "Escape") { if (menuEl) closeMenu(); else if (layer) closeLayer(); else if (calPop) closeCalPop(); else if (typing) e.target.blur(); return; }
+    if (layer && layer.querySelector(".cal-ed") && ((e.metaKey || e.ctrlKey) && e.key === "Enter" || (e.target.id === "ce-title" && e.key === "Enter"))) { e.preventDefault(); saveEd(); return; }
+    if (e.target.id === "ce-guest" && (e.key === "Enter" || e.key === ",")) { e.preventDefault(); syncEd(); addGuest(e.target.value); return; }
+    if (e.target.id === "cd-h" && e.key === "Enter") { e.preventDefault(); A["cal-tdur"]("custom"); return; }
+    if (e.target.id === "cq-title" && e.key === "Enter") { e.preventDefault(); saveQuick(); return; }
+    if (e.target.id === "cc-name" && e.key === "Enter") { e.preventDefault(); saveCalDialog(); return; }
+    if (e.target.id === "gd-date" && e.key === "Enter") { e.preventDefault(); A["cal-gd"](); return; }
+    if (e.target.id === "cal-q" && e.key === "Enter") { e.preventDefault(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && layer && S.draft && layer.querySelector("#dtitle")) { submitCreate(); return; }
     if (e.target.id === "fd-name" && e.key === "Enter") { e.preventDefault(); saveFolderDialog(); return; }
     if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(e.target.value); return; }
@@ -1605,6 +2520,7 @@
       const inp = document.getElementById("todo-new"); inp && inp.focus(); return;
     }
     if (typing || layer || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (S.route === "pin/calendar" && calKey(e)) return;
     if (/^wiki\/flashcards\/./.test(S.route) && S.study.deck) {
       if (e.key === " ") { e.preventDefault(); A.flip(); return; }
       if (S.study.flipped && (e.key === "1" || e.key === "2")) { A.rate(e.key === "1" ? "again" : "good"); return; }
