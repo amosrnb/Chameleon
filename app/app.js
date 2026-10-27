@@ -30,6 +30,8 @@
     ftab: "plan", // tab on the folder page: plan | content | folders
     ibxT: "today", // inbox ToDo tab: today | upcoming | undated
     ibxN: null, // inbox notification tab: new | all (null: new while anything is unread)
+    ibx: null, // inbox widgets [{ id, on, size }], loaded on first visit
+    ibxRows: store.get("ibxRows", 6), // rows per inbox list
     prefs: { notifications: true, digest: false, autoAssign: true, publicLinks: false },
     chatSeq: 3,
     study: { deck: null, i: 0, flipped: false, good: 0 }, // flashcard session
@@ -332,27 +334,55 @@
         ${panel}
       </div></div>`;
   }
-  // Inbox: date, greeting and one status line, then cards — ToDos and notifications side by side (tabbed, short lists), projects, then the week
+  // Inbox: a column of widgets the viewer picks, orders and sizes (Customize dialog); layout is kept per browser
   const IB_ICONS = { reminder: "bell", study: "gallery-vertical-end", milestone: "flag", time: "timer", done: "circle-check", system: "sparkles" };
   const dueLabel = dd => dd < 0 ? `${-dd}d overdue` : dd === 0 ? "Today" : dd === 1 ? "Tomorrow" : `In ${dd}d`;
+  // id: [label, description, icon, default width, shown by default]; fixed widgets always span the full width
+  const IBX_W = {
+    greeting: ["Greeting", "Date, greeting and the one-line status.", "hand", "full", true],
+    summary: ["Summary tiles", "Unread, overdue, due today and this week as big numbers.", "layout-grid", "full", true],
+    todos: ["My ToDos", "Open ToDos in tabs: today, upcoming, no date.", "list-checks", "half", true],
+    notes: ["Notifications", "Reminders and updates, new ones first.", "bell", "half", true],
+    projects: ["Projects", "Progress, open ToDos, next milestone and target per project.", "folder-kanban", "full", true],
+    days: ["Next 14 days", "How many ToDos are due on each of the next 14 days.", "calendar-days", "half", true],
+    milestones: ["Milestones", "The next milestones across all projects.", "flag", "half", false],
+    time: ["Time this week", "Hours logged per day this week.", "timer", "half", true],
+    learn: ["Learning", "Flashcards mastered and study time.", "gallery-vertical-end", "half", true],
+  };
+  const IBX_FIXED = ["greeting"];
+  const ibxDefault = () => Object.entries(IBX_W).map(([id, w]) => ({ id, on: w[4], size: w[3] }));
+  // saved layout first (unknown ids dropped), widgets added later go to the end with their defaults
+  const ibxLoad = () => {
+    const saved = (store.get("ibxLayout", []) || []).filter(w => IBX_W[w.id]);
+    return [...saved, ...ibxDefault().filter(d => !saved.some(w => w.id === d.id))];
+  };
   function viewInbox() {
+    S.ibx = S.ibx || ibxLoad();
     const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
     const open = D.inbox.filter(m => !m.done), cleared = D.inbox.length - open.length, unread = unreadCount();
     const mono = s => `<span class="mono ibx-m">${s}</span>`;
-    const MAX = 6; // rows per card before "Show all"
+    const MAX = S.ibxRows; // rows per list before "Show all"
     // open ToDos by due date; undated ones have their own tab
     const openT = D.todos.filter(t => !t.done).map(t => ({ t, dd: t.due ? dayDiff(t.due) : null }));
     const byDue = f => openT.filter(f).sort((a, b) => a.dd - b.dd);
     const over = byDue(x => x.dd !== null && x.dd < 0), today = byDue(x => x.dd === 0), upcoming = byDue(x => x.dd > 0), undated = openT.filter(x => x.dd === null);
+    const week = upcoming.filter(x => x.dd <= 7);
 
-    const card = (cls, title, tabs, actions, body) => `<section class="ibx-card ${cls}"><div class="ibx-card-h"><h2 class="ibx-h2">${title}</h2>${tabs}<span class="spacer"></span>${actions}</div>${body}</section>`;
+    const card = (title, tabs, actions, body) => `<div class="ibx-card-h"><h2 class="ibx-h2">${title}</h2>${tabs}<span class="spacer"></span>${actions}</div>${body}`;
     const tabs = (act, cur, list) => `<div class="ibx-tabs" role="tablist">${list.map(([k, label, n]) => `<button class="tab${cur === k ? " active" : ""}" data-a="${act}:${k}" role="tab" aria-selected="${cur === k}">${label}${n ? `<span class="mono">${n}</span>` : ""}</button>`).join("")}</div>`;
     const empty = (icon, text) => `<div class="ibx-empty">${ic(icon, 16, "var(--text-tertiary)")}<span>${text}</span></div>`;
     const list = (items, render, a, e) => items.length ? `<div class="ibx-list">${items.slice(0, MAX).map(render).join("")}</div>${items.length > MAX ? `<button class="ibx-more" data-a="${a}">Show all ${items.length}</button>` : ""}` : e;
+    const link = (a, label) => `<button class="btn sm ghost" data-a="${a}">${label}</button>`;
 
-    // status line: the numbers that matter, each one switches to the matching tab
-    const st = [over.length && [over.length + " overdue", "ibx-t:today", " late"], today.length && [today.length + " due today", "ibx-t:today", ""], unread && [unread + " unread", "ibx-n:new", ""]].filter(Boolean);
-    const status = st.length ? st.map(([t, a, c]) => `<button class="ibx-st${c}" data-a="${a}">${t}</button>`).join('<span class="ibx-sep">·</span>') : "Nothing urgent. You're on track.";
+    const W = {};
+    // greeting: the numbers that matter, each one opens the matching tab
+    const st = [over.length && [over.length + " overdue", "t:today", " late"], today.length && [today.length + " due today", "t:today", ""], unread && [unread + " unread", "n:new", ""]].filter(Boolean);
+    const date = TODAY.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    W.greeting = () => `<span class="label-mono">${date}</span><h1 class="ibx-title">${greet}, ${esc(D.me.split(" ")[0])}.</h1>
+      <p class="ibx-status">${st.length ? st.map(([t, a, c]) => `<button class="ibx-st${c}" data-a="ibx-go:${a}">${t}</button>`).join('<span class="ibx-sep">·</span>') : "Nothing urgent. You're on track."}</p>`;
+
+    const sum = (k, n, icon, a, hot) => `<div class="ibx-tile${hot ? " hot" : ""}" data-a="ibx-go:${a}"><div class="ibx-tile-top"><span class="label-mono">${k}</span>${ic(icon, 14, "var(--text-tertiary)")}</div><div class="ibx-num">${n}</div></div>`;
+    W.summary = () => `<div class="ibx-sum">${sum("Unread", unread, "mail", "n:new")}${sum("Overdue", over.length, "circle-alert", "t:today", over.length)}${sum("Due today", today.length, "calendar-check", "t:today")}${sum("This week", week.length, "calendar-range", "t:upcoming")}</div>`;
 
     // ToDos: the circle ticks one off, the rest of the row opens the ToDos page
     const tt = ["today", "upcoming", "undated"].includes(S.ibxT) ? S.ibxT : "today";
@@ -365,9 +395,9 @@
     };
     const tItems = tt === "today" ? [...over, ...today] : tt === "upcoming" ? upcoming : undated;
     const tEmpty = tt === "today" ? `Nothing due today.${upcoming.length ? ` ${upcoming.length} coming up.` : ""}` : tt === "upcoming" ? "Nothing scheduled." : "Every ToDo has a date.";
-    const todos = card("ibx-todos", "My ToDos",
+    W.todos = () => card("My ToDos",
       tabs("ibx-t", tt, [["today", "Today", over.length + today.length], ["upcoming", "Upcoming", upcoming.length], ["undated", "No date", undated.length]]),
-      `<button class="ib sm" data-a="qcfam:plan|" title="New ToDo">${ic("plus", 14)}</button><button class="btn sm ghost" data-a="go:pin/todos">All</button>`,
+      `<button class="ib sm" data-a="qcfam:plan|" title="New ToDo">${ic("plus", 14)}</button>${link("go:pin/todos", "All")}`,
       list(tItems, todoRow, "go:pin/todos", empty("circle-check", tEmpty)));
 
     // notifications: new ones by default; read, clear and open on the row
@@ -380,42 +410,78 @@
         <span class="ibx-time">${m.time}</span>${m.unread ? '<span class="unread-dot"></span>' : '<span class="dot-gap"></span>'}</div>`;
     };
     const nItems = nt === "new" ? open.filter(m => m.unread) : open;
-    const notes = card("ibx-notes", "Notifications",
+    W.notes = () => card("Notifications",
       tabs("ibx-n", nt, [["new", "New", unread], ["all", "All", open.length]]),
       unread ? `<button class="ib sm" data-a="readall" title="Mark all read">${ic("check-check", 14)}</button>` : "",
       list(nItems, noteRow, "ibx-n:all", empty("sparkles", nt === "new" ? "No new notifications." : "You're all caught up.")) + (cleared ? `<button class="ibx-more" data-a="ib-restore">Restore ${cleared} cleared</button>` : ""));
 
     // projects: one row each with progress, open ToDos, next milestone and target
     // dates carry no year, so an end far in the past (e.g. January) means next year
-    const nextMs = p => (p.project.milestones || []).map(m => ({ m, dd: (d => d < -180 ? d + 365 : d)(dayDiff(m.end)) })).filter(x => x.dd >= 0).sort((a, b) => a.dd - b.dd)[0];
+    const msOf = p => (p.project.milestones || []).map(m => ({ m, p, dd: (d => d < -180 ? d + 365 : d)(dayDiff(m.end)) })).filter(x => x.dd >= 0);
     const projRows = projects().map(p => {
-      const pct = projProgress(p), ms = nextMs(p), n = deepItems(p.id, ["todo"]).filter(i => !i.x.done).length;
+      const pct = projProgress(p), ms = msOf(p).sort((a, b) => a.dd - b.dd)[0], n = deepItems(p.id, ["todo"]).filter(i => !i.x.done).length;
       return `<div class="ibx-prow" data-a="openfolder:${p.id}"><span class="ibx-pname">${folderIcon(p, 15)}<span>${esc(p.name)}</span></span>
         <span class="ibx-pbar"><span class="bar"><span style="width:${pct}%"></span></span>${mono(pct + "%")}</span>
         <span class="ibx-pc">${n} open</span><span class="ibx-pc">${ms ? `${esc(ms.m.name)} · ${dueLabel(ms.dd).toLowerCase()}` : "No milestone"}</span>${mono(esc(p.project.target || "–"))}</div>`;
     }).join("");
-    const proj = card("ibx-proj", "Projects", "", `<button class="btn sm ghost" data-a="go:plan/timelines">Timeline</button>`,
+    W.projects = () => card("Projects", "", link("go:plan/timelines", "Timeline"),
       projRows ? `<div class="ibx-list">${projRows}</div>` : empty("folder-kanban", "No project folders yet. Turn a folder into a project in its settings."));
+
+    const allMs = projects().flatMap(msOf).sort((a, b) => a.dd - b.dd);
+    W.milestones = () => card("Milestones", "", link("go:plan/timelines", "Timeline"),
+      list(allMs, ({ m, p, dd }) => `<div class="ibx-row" data-a="openfolder:${p.id}"><span class="ibx-ico">${ic("flag", 14)}</span><span class="ibx-txt"><span class="ibx-t">${esc(m.name)}</span><span class="ibx-s">${esc(p.name)}</span></span><span class="ibx-due">${dueLabel(dd)}</span></div>`, "go:plan/timelines", empty("flag", "No upcoming milestones.")));
+
+    // next 14 days: one column per day, a dot per ToDo due (up to 4)
+    const days = Array.from({ length: 14 }, (_, d) => ({ d, n: openT.filter(x => x.dd === d).length, wd: "MTWTFSS"[(TODAY_IDX + d) % 7] }));
+    W.days = () => card("Next 14 days", "", `<span class="label-mono">${days.reduce((s, x) => s + x.n, 0)} due</span>`,
+      `<div class="ibx-pad"><div class="ibx-dots">${days.map(x => `<div class="col${x.d === 0 ? " now" : ""}" title="${x.n} due ${x.d === 0 ? "today" : "in " + x.d + "d"}"><em>${x.n || ""}</em>${[3, 2, 1, 0].map(k => `<i class="${k < x.n ? "on" : ""}"></i>`).join("")}<b>${x.wd}</b></div>`).join("")}</div></div>`);
 
     // the week: hours per day and flashcard progress
     const myHours = [0, 1, 2, 3, 4, 5, 6].map(d => D.timeEntries.reduce((s, e) => s + e.hours[d], 0));
     const maxH = Math.max(4, ...myHours), totalH = myHours.reduce((a, b) => a + b, 0);
-    const cards = D.decks.flatMap(d => d.cards), known = cards.filter(c => c.known).length, studyMin = D.studyMinutes.reduce((a, b) => a + b, 0);
-    const pctKnown = cards.length ? Math.round(known / cards.length * 100) : 0;
-    const time = card("ibx-week", "Time this week", "", `<button class="btn sm ghost" data-a="go:plan/time">Time sheet</button>`,
+    W.time = () => card("Time this week", "", link("go:plan/time", "Time sheet"),
       `<div class="ibx-wk"><div class="ibx-big">${totalH}h<small>${(totalH / Math.max(1, TODAY_IDX + 1)).toFixed(1)}h per day</small></div>
         <div class="ibx-bars">${myHours.map((h, d) => `<div class="b${d === TODAY_IDX ? " now" : ""}" title="${h}h"><span class="${h ? "" : "zero"}" style="height:${Math.max(6, h / maxH * 100)}%"></span><b>${"MTWTFSS"[d]}</b></div>`).join("")}</div></div>`);
-    const learn = card("ibx-learn", "Learning", "", `<button class="btn sm ghost" data-a="go:wiki/flashcards">Study</button>`,
+    const cards = D.decks.flatMap(d => d.cards), known = cards.filter(c => c.known).length, studyMin = D.studyMinutes.reduce((a, b) => a + b, 0);
+    const pctKnown = cards.length ? Math.round(known / cards.length * 100) : 0;
+    W.learn = () => card("Learning", "", link("go:wiki/flashcards", "Study"),
       `<div class="ibx-wk"><div class="ibx-big">${pctKnown}%<small>mastered</small></div>
         <div class="ibx-kvs"><span class="bar"><span style="width:${pctKnown}%"></span></span><div class="ibx-kv"><span>Cards known</span>${mono(known + " / " + cards.length)}</div><div class="ibx-kv"><span>Studied this week</span>${mono(studyMin + " min")}</div></div></div>`);
 
-    const date = TODAY.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-    return header("Inbox", { lead: ic("inbox", 16, "var(--text-secondary)") }) + `<div class="scroll"><div class="home ibx">
-      <div class="ibx-hero"><span class="label-mono">${date}</span><h1 class="ibx-title">${greet}, ${esc(D.me.split(" ")[0])}.</h1><p class="ibx-status">${status}</p></div>
-      <div class="ibx-pair">${todos}${notes}</div>
-      ${proj}
-      <div class="ibx-pair">${time}${learn}</div>
+    // greeting and tiles sit on the page, everything else in a card
+    const plain = ["greeting", "summary"];
+    const shown = S.ibx.filter(w => w.on);
+    const body = shown.map(w => `<section class="ibx-w${plain.includes(w.id) ? " plain" : " ibx-card"}${IBX_FIXED.includes(w.id) || w.size === "full" ? " full" : ""}" id="ibx-w-${w.id}">${W[w.id]()}</section>`).join("");
+    return header("Inbox", { lead: ic("inbox", 16, "var(--text-secondary)"), actions: `<button class="btn sm ghost" data-a="ibx-custom">${ic("sliders-horizontal", 13)}Customize</button>` }) + `<div class="scroll"><div class="home ibx">
+      ${shown.length ? `<div class="ibx-grid">${body}</div>` : `<div class="ibx-card">${empty("layout-dashboard", `Your Inbox is empty. <button class="ibx-st" data-a="ibx-custom">Choose what to show</button>`)}</div>`}
     </div></div>`;
+  }
+  // Customize dialog: show/hide, order (up/down) and width per widget, plus rows per list
+  function ibxCustomHtml() {
+    const seg = (cur, list, a) => `<div class="ibc-seg">${list.map(([k, label]) => `<button class="tab${cur === k ? " active" : ""}" data-a="${a}${k}">${label}</button>`).join("")}</div>`;
+    const rows = S.ibx.map((w, i) => {
+      const [label, desc, icon] = IBX_W[w.id], last = i === S.ibx.length - 1;
+      return `<div class="ibc-row${w.on ? "" : " off"}">
+        <span class="ibc-move"><button class="ib sm" data-a="ibc-move:${i}|-1" title="Move up"${i ? "" : " disabled"}>${ic("chevron-up", 14)}</button><button class="ib sm" data-a="ibc-move:${i}|1" title="Move down"${last ? " disabled" : ""}>${ic("chevron-down", 14)}</button></span>
+        <span class="ibx-ico">${ic(icon, 14)}</span>
+        <div class="l"><b>${label}</b><span>${desc}</span></div>
+        ${IBX_FIXED.includes(w.id) ? "" : seg(w.size, [["half", "Half"], ["full", "Full"]], `ibc-size:${i}|`)}
+        <button class="switch${w.on ? " on" : ""}" data-a="ibc-on:${i}" role="switch" aria-checked="${w.on}" aria-label="Show ${label}"></button></div>`;
+    }).join("");
+    return `<div class="dialog ibc" role="dialog" aria-modal="true">
+      <div class="dh"><span style="font:var(--type-heading)">Customize Inbox</span><span style="flex:1"></span><button class="ib" data-a="close" title="Close  Esc">${ic("x")}</button></div>
+      <div class="db"><p class="ibc-hint">Pick what the Inbox shows, in which order and how wide. Half-width widgets sit side by side.</p>
+        <div class="ibc-list">${rows}</div>
+        <div class="ibc-row ibc-opt"><div class="l"><b>Rows per list</b><span>How many ToDos, notifications and milestones a card shows before “Show all”.</span></div>${seg(S.ibxRows, [[4, "4"], [6, "6"], [10, "10"]], "ibc-rows:")}</div></div>
+      <div class="df"><button class="btn ghost" data-a="ibc-reset">${ic("rotate-ccw", 13)}Reset to default</button><span style="flex:1"></span><button class="btn primary" data-a="close">Done</button></div></div>`;
+  }
+  // save, redraw the page behind, then the dialog in place (keeping its scroll)
+  function ibxSave() {
+    store.set("ibxLayout", S.ibx); store.set("ibxRows", S.ibxRows); render();
+    if (!layer) return;
+    const db = layer.querySelector(".db"), top = db ? db.scrollTop : 0;
+    layer.innerHTML = ibxCustomHtml(); layer.firstElementChild.style.animation = "none";
+    layer.querySelector(".db").scrollTop = top;
   }
   /* ---------- Work: notes, canvas, stickies ---------- */
   const STICKY_COLORS = { amber: ["var(--warning-soft)", "var(--warning)"], green: ["var(--success-soft)", "var(--success)"], blue: ["var(--info-soft)", "var(--info)"], violet: ["var(--violet-900)", "var(--violet-500)"], red: ["var(--danger-soft)", "var(--danger)"] };
@@ -1408,6 +1474,19 @@
     "ib-restore": () => { D.inbox.forEach(m => m.done = false); render(); },
     "ibx-t": (v) => { S.ibxT = v; render(); },
     "ibx-n": (v) => { S.ibxN = v; render(); },
+    // from the greeting or a tile: switch the tab, then scroll to its card (or open the full page when the card is hidden)
+    "ibx-go": (v) => {
+      const [k, tab] = v.split(":"), id = k === "t" ? "todos" : "notes";
+      if (k === "t") S.ibxT = tab; else S.ibxN = tab;
+      if (!S.ibx.some(w => w.id === id && w.on)) return k === "t" ? go("pin/todos") : toast("Notifications are hidden. Turn them on in Customize.");
+      render(); const el = document.getElementById("ibx-w-" + id); el && el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    "ibx-custom": () => { S.ibx = S.ibx || ibxLoad(); openLayer(ibxCustomHtml()); },
+    "ibc-move": (v) => { const [i, d] = v.split("|").map(Number), j = i + d; if (j < 0 || j >= S.ibx.length) return; [S.ibx[i], S.ibx[j]] = [S.ibx[j], S.ibx[i]]; ibxSave(); },
+    "ibc-size": (v) => { const [i, size] = v.split("|"); S.ibx[+i].size = size; ibxSave(); },
+    "ibc-on": (v) => { S.ibx[+v].on = !S.ibx[+v].on; ibxSave(); },
+    "ibc-rows": (v) => { S.ibxRows = +v; ibxSave(); },
+    "ibc-reset": () => { S.ibx = ibxDefault(); S.ibxRows = 6; ibxSave(); },
     readall: () => { D.inbox.forEach(m => m.unread = false); render(); toast("All notifications marked read"); },
     pref: (k) => { S.prefs[k] = !S.prefs[k]; render(); },
     savews: () => { const v = document.getElementById("wsname").value.trim(); if (v) { D.workspace.name = v; D.workspace.initial = v[0].toUpperCase(); } render(); toast("Workspace saved"); },
