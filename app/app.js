@@ -328,61 +328,27 @@
         ${panel}
       </div></div>`;
   }
-  // Inbox: a personal overview laid out as a dense, mostly monochrome bento grid — no collaboration yet
+  // Inbox: everything still open in one list (notifications, then ToDos by due date), context tiles on the side — no collaboration yet
   const IB_ICONS = { reminder: "bell", study: "gallery-vertical-end", milestone: "flag", time: "timer", done: "circle-check", system: "sparkles" };
-  const ibToday = m => /[mh]$/.test(m.time);
   const dueLabel = dd => dd < 0 ? `${-dd}d overdue` : dd === 0 ? "Today" : dd === 1 ? "Tomorrow" : `In ${dd}d`;
-  const ring = (pct, size = 104) => {
-    const r = size / 2 - 6, c = 2 * Math.PI * r;
-    return `<svg class="ibx-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="trk"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="val" stroke-dasharray="${c * pct / 100} ${c}"/></svg>`;
-  };
   function viewInbox() {
     const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
     const open = D.inbox.filter(m => !m.done), cleared = D.inbox.length - open.length, unread = unreadCount();
     const mono = s => `<span class="mono ibx-m">${s}</span>`;
-    // dated ToDos land in the due buckets; clicking one ticks it off
-    const dated = D.todos.filter(t => !t.done && t.due).map(t => ({ dd: dayDiff(t.due), due: t.due, title: t.text, a: "todo:" + t.id, lead: '<span class="ibx-ck"></span>', id: esc((folderName(t.folder) || "ToDo").slice(0, 16)), pr: prio(t.prio) }))
-      .sort((a, b) => a.dd - b.dd);
-    const over = dated.filter(x => x.dd < 0), today = dated.filter(x => x.dd === 0), week = dated.filter(x => x.dd > 0 && x.dd <= 7);
-    const line = x => `<div class="it" data-a="${x.a}">${x.lead}${mono(x.id)}<span class="t">${esc(x.title)}</span>${x.pr && x.pr.id ? `<span class="ibx-m" title="${x.pr.name}">${ic(x.pr.icon, 13, "var(--text-tertiary)")}</span>` : ""}${mono(x.due)}</div>`;
-    const card = (lbl, list, cls = "") => `<div class="card ibx-due ${cls}"><div class="label-mono">${lbl}<span class="n">${list.length}</span></div>${list.length ? list.map(line).join("") : '<div class="none">Nothing here</div>'}</div>`;
-
-    // bento data
-    const readPct = D.inbox.length ? Math.round((D.inbox.length - unread) / D.inbox.length * 100) : 100;
-    const mineT = D.timeEntries;
-    const myHours = [0, 1, 2, 3, 4, 5, 6].map(d => mineT.reduce((s, e) => s + e.hours[d], 0));
-    const maxH = Math.max(4, ...myHours), totalH = myHours.reduce((a, b) => a + b, 0);
-    const byTodo = mineT.map(e => ({ id: e.todo, h: e.hours.reduce((a, b) => a + b, 0) })).filter(x => x.h && todo(x.id)).sort((a, b) => b.h - a.h);
-    const days = Array.from({ length: 14 }, (_, d) => { const dt = new Date(TODAY); dt.setDate(dt.getDate() + d); return { d, n: dated.filter(x => x.dd === d).length, wd: "MTWTFSS"[(TODAY_IDX + d) % 7], date: dt.getDate() }; });
-    const tDone = D.todos.filter(t => t.done).length, tLate = over.length, tOpen = D.todos.length - tDone - tLate;
-    const stCount = [{ cls: "st-progress", name: "Overdue", n: tLate }, { cls: "st-todo", name: "Open", n: tOpen }, { cls: "st-backlog", name: "Done", n: tDone }];
-    const cards = D.decks.flatMap(d => d.cards), known = cards.filter(c => c.known).length, studyMin = D.studyMinutes.reduce((a, b) => a + b, 0);
-    const kv = (k, v) => `<div class="ibx-kv"><span>${k}</span>${mono(v)}</div>`;
     const tileHead = (k, right) => `<div class="ibx-tile-top"><span class="label-mono">${k}</span>${right}</div>`;
-    const listTile = (cls, k, icon, list, empty) => `<div class="ibx-tile ${cls}">${tileHead(k, ic(icon, 14, "var(--text-tertiary)"))}<div class="ibx-big">${list.length}</div><div class="ibx-mini">${list.length ? list.slice(0, 3).map(x => `<div data-a="${x.a}"><span class="t">${esc(x.title)}</span>${mono(dueLabel(x.dd))}</div>`).join("") : `<div class="none">${empty}</div>`}</div></div>`;
+    // open ToDos bucketed by due date; undated ones go last
+    const openT = D.todos.filter(t => !t.done).map(t => ({ t, dd: t.due ? dayDiff(t.due) : null }));
+    const bucket = f => openT.filter(f).sort((a, b) => a.dd - b.dd);
+    const over = bucket(x => x.dd !== null && x.dd < 0), today = bucket(x => x.dd === 0), week = bucket(x => x.dd > 0 && x.dd <= 7),
+      later = bucket(x => x.dd > 7), undated = openT.filter(x => x.dd === null);
 
-    const bento = `<div class="ibx-bento">
-      <div class="ibx-tile ibx-ring-tile">${tileHead("Inbox", `<span class="ibx-link" data-a="readall">Read all</span>`)}
-        <div class="ibx-ring-wrap">${ring(readPct)}<span class="ibx-ring-v">${readPct}%<small>read</small></span></div>
-        ${kv("Unread", unread)}${kv("Read", open.length - unread)}${kv("Cleared", cleared)}${kv("Total", D.inbox.length)}</div>
-      ${listTile("t-over" + (over.length ? " hot" : ""), "Overdue", "circle-alert", over, "Nothing late")}
-      ${listTile("", "Due today", "calendar-check", today, "Free day")}
-      <div class="ibx-tile ibx-hours" data-a="go:plan/time">${tileHead("Focus this week", ic("timer", 14, "var(--text-tertiary)"))}
-        <div class="ibx-big">${totalH}h<small> / ${(totalH / Math.max(1, TODAY_IDX + 1)).toFixed(1)}h per day</small></div>
-        <div class="ibx-bars">${myHours.map((h, d) => `<div class="b${d === TODAY_IDX ? " now" : ""}"><em>${h ? h : ""}</em><span class="${h ? "" : "zero"}" style="height:${Math.max(6, h / maxH * 100)}%"></span><b>${"MTWTFSS"[d]}</b></div>`).join("")}</div>
-        <div class="ibx-mini">${byTodo.map(x => { const t = todo(x.id); return `<div data-a="go:plan/time"><span class="t">${t ? esc(t.text) : "Deleted ToDo"}</span>${mono(x.h + "h")}</div>`; }).join("") || '<div class="none">No time logged</div>'}</div></div>
-      <div class="ibx-tile ibx-dots-tile">${tileHead("Next 14 days", `<span class="label-mono">${dated.filter(x => x.dd >= 0 && x.dd < 14).length} due · ${over.length} late</span>`)}
-        <div class="ibx-dots">${days.map(x => `<div class="col${x.d === 0 ? " now" : ""}" title="${x.n} due ${x.d === 0 ? "today" : "in " + x.d + "d"}"><em>${x.n || ""}</em>${[3, 2, 1, 0].map(k => `<i class="${k < x.n ? "on" : ""}"></i>`).join("")}<b>${x.wd}</b><b class="dt">${x.date}</b></div>`).join("")}</div></div>
-      <div class="ibx-tile">${tileHead("ToDos", `<span class="ibx-link" data-a="go:pin/todos">Open</span>`)}
-        <div class="ibx-big">${D.todos.length - tDone}<small> open of ${D.todos.length}</small></div>
-        <div class="ibx-stack">${stCount.map(s => s.n ? `<span class="${s.cls}" style="flex:${s.n}" title="${s.name}: ${s.n}"></span>` : "").join("")}</div>
-        ${stCount.map(s => kv(s.name, s.n)).join("")}</div>
-      <div class="ibx-tile ibx-proj">${tileHead("Projects", `<span class="ibx-link" data-a="go:plan/timelines">Timeline</span>`)}
-        ${projects().map(p => { const pct = projProgress(p); return `<div class="ibx-prow" data-a="openfolder:${p.id}"><span class="t">${esc(p.name)}</span>${mono(deepItems(p.id, ["todo"]).filter(i => !i.x.done).length + " open")}${mono(esc(p.project.target || "–"))}<span class="bar"><span style="width:${pct}%"></span></span>${mono(pct + "%")}</div>`; }).join("") || '<div class="ibx-kv"><span>No project folders yet</span></div>'}</div>
-      <div class="ibx-tile" data-a="go:wiki/flashcards">${tileHead("Learning", ic("gallery-vertical-end", 14, "var(--text-tertiary)"))}
-        <div class="ibx-big">${Math.round(known / cards.length * 100)}%<small> mastered</small></div>
-        ${kv("Cards known", known + " / " + cards.length)}${kv("Studied this week", studyMin + " min")}${kv("Decks", D.decks.length)}${kv("Last session", D.decks.map(d => d.last).sort()[0] + " ago")}</div>
-    </div>`;
+    // summary strip: one number per bucket, click jumps to it
+    const sum = (k, n, icon, target, cls = "") => `<div class="ibx-tile ibx-sum-t${cls}" data-a="ibx-jump:${target}">${tileHead(k, ic(icon, 14, "var(--text-tertiary)"))}<div class="ibx-big">${n}</div></div>`;
+    const summary = `<div class="ibx-sum">
+      ${sum("Unread", unread, "mail", "ibx-notes")}
+      ${sum("Overdue", over.length, "circle-alert", over.length ? "ibx-g-over" : "ibx-todos", over.length ? " hot" : "")}
+      ${sum("Due today", today.length, "calendar-check", today.length ? "ibx-g-today" : "ibx-todos")}
+      ${sum("This week", week.length, "calendar-range", week.length ? "ibx-g-week" : "ibx-todos")}</div>`;
 
     const KIND = { reminder: "Reminder", study: "Study", milestone: "Milestone", time: "Time", done: "Done", system: "System" };
     const row = m => {
@@ -394,27 +360,50 @@
         <span class="ibx-time">${m.time}</span>${m.unread ? '<span class="unread-dot"></span>' : '<span class="dot-gap"></span>'}
         <span class="ibx-tools"><button class="ib sm" data-a="ib-read:${m.id}" title="${m.unread ? "Mark read" : "Mark unread"}">${ic(m.unread ? "mail-open" : "mail", 14)}</button><button class="ib sm" data-a="ib-done:${m.id}" title="Clear">${ic("check", 14)}</button></span></div>`;
     };
-    const group = (lbl, list) => list.length ? `<div class="ibx-group label-mono">${lbl}<span>${list.length}</span></div>${list.map(row).join("")}` : "";
-    const notes = open.length ? `<div class="box ibx-list">${group("Today", open.filter(ibToday))}${group("Earlier", open.filter(m => !ibToday(m)))}</div>`
-      : `<div class="box ibx-list ibx-empty">${ic("sparkles", 16, "var(--text-tertiary)")}You're all caught up.</div>`;
+    // the circle ticks a ToDo off, the rest of the row opens the ToDos page
+    const todoRow = ({ t, dd }) => {
+      const pr = prio(t.prio);
+      return `<div class="ibx-row ibx-todo${dd !== null && dd < 0 ? " late" : ""}" data-a="go:pin/todos"><span class="ibx-ck" data-a="todo:${t.id}" title="Mark done"></span>
+        <span class="ibx-txt"><span class="ibx-t">${esc(t.text)}</span></span>
+        <span class="ibx-col">${esc(folderName(t.folder) || "")}</span><span class="ibx-pr" title="${pr.name}">${pr.id ? ic(pr.icon, 13, "var(--text-tertiary)") : ""}</span>
+        <span class="ibx-due-l">${dd === null ? "No date" : dueLabel(dd)}</span></div>`;
+    };
+    const group = (lbl, list, render, id = "", cls = "") => list.length ? `<div class="ibx-group label-mono${cls}"${id ? ` id="${id}"` : ""}>${lbl}<span>${list.length}</span></div>${list.map(render).join("")}` : "";
+    const section = (id, title, n, extra, body) => `<section class="ibx-sec" id="${id}"><div class="ibx-sec-h"><h2 class="ibx-h2">${title}</h2><span class="label-mono">${n}</span>${extra}</div>${body}</section>`;
 
-    const todos = D.todos.filter(t => !t.done && !t.due);
-    const todoCard = `<div class="card"><div class="label-mono ibx-head">ToDos<span class="n">${D.todos.filter(t => t.done).length}/${D.todos.length} done</span><span class="ibx-link" data-a="go:pin/todos">All</span></div>${todos.length ? todos.map(t => `<div class="it" data-a="todo:${t.id}" title="Mark done"><span class="ibx-ck"></span><span class="t">${esc(t.text)}</span>${mono("No date")}</div>`).join("") : '<div class="none">Nothing without a date</div>'}</div>`;
+    const notes = section("ibx-notes", "Notifications", open.length, cleared ? `<span class="ibx-link" data-a="ib-restore">Restore ${cleared} cleared</span>` : "",
+      open.length ? `<div class="box ibx-list">${group("New", open.filter(m => m.unread), row)}${group("Earlier", open.filter(m => !m.unread), row)}</div>`
+        : `<div class="box ibx-list ibx-empty">${ic("sparkles", 16, "var(--text-tertiary)")}You're all caught up.</div>`);
+    const todos = section("ibx-todos", "ToDos", openT.length, `<span class="ibx-link" data-a="go:pin/todos">All ToDos</span>`,
+      openT.length ? `<div class="box ibx-list">${group("Overdue", over, todoRow, "ibx-g-over", " late")}${group("Today", today, todoRow, "ibx-g-today")}${group("This week", week, todoRow, "ibx-g-week")}${group("Later", later, todoRow)}${group("No date", undated, todoRow)}</div>`
+        : `<div class="box ibx-list ibx-empty">${ic("circle-check", 16, "var(--text-tertiary)")}Nothing open.</div>`);
+
+    // side column: context, not tasks
+    const kv = (k, v) => `<div class="ibx-kv"><span>${k}</span>${mono(v)}</div>`;
+    const days = Array.from({ length: 14 }, (_, d) => ({ d, n: openT.filter(x => x.dd === d).length, wd: "MTWTFSS"[(TODAY_IDX + d) % 7] }));
+    const myHours = [0, 1, 2, 3, 4, 5, 6].map(d => D.timeEntries.reduce((s, e) => s + e.hours[d], 0));
+    const maxH = Math.max(4, ...myHours), totalH = myHours.reduce((a, b) => a + b, 0);
+    const cards = D.decks.flatMap(d => d.cards), known = cards.filter(c => c.known).length, studyMin = D.studyMinutes.reduce((a, b) => a + b, 0);
     // dates carry no year, so an end far in the past (e.g. January) means next year
-    const ms = projects().flatMap(p => (p.project.milestones || []).map(m => ({ m, p, dd: (d => d < -180 ? d + 365 : d)(dayDiff(m.end)) }))).filter(x => x.dd >= 0).sort((a, b) => a.dd - b.dd);
-    const msCard = `<div class="card"><div class="label-mono ibx-head">Milestones<span class="ibx-link" data-a="go:plan/timelines">Timeline</span></div>${ms.map(({ m, p, dd }) => `<div class="it" data-a="openfolder:${p.id}"><span class="t">${esc(m.name)} <span style="color:var(--text-tertiary)">· ${esc(p.name)}</span></span>${mono(m.start + " – " + m.end)}${mono(dueLabel(dd))}</div>`).join("") || '<div class="none">No upcoming milestones</div>'}</div>`;
+    const ms = projects().flatMap(p => (p.project.milestones || []).map(m => ({ m, p, dd: (d => d < -180 ? d + 365 : d)(dayDiff(m.end)) }))).filter(x => x.dd >= 0).sort((a, b) => a.dd - b.dd).slice(0, 3);
+    const side = `<aside class="ibx-side">
+      <div class="ibx-tile">${tileHead("Next 14 days", `<span class="label-mono">${days.reduce((s, x) => s + x.n, 0)} due</span>`)}
+        <div class="ibx-dots">${days.map(x => `<div class="col${x.d === 0 ? " now" : ""}" title="${x.n} due ${x.d === 0 ? "today" : "in " + x.d + "d"}"><em>${x.n || ""}</em>${[3, 2, 1, 0].map(k => `<i class="${k < x.n ? "on" : ""}"></i>`).join("")}<b>${x.wd}</b></div>`).join("")}</div></div>
+      <div class="ibx-tile" data-a="go:plan/time">${tileHead("Focus this week", ic("timer", 14, "var(--text-tertiary)"))}
+        <div class="ibx-big">${totalH}h<small> / ${(totalH / Math.max(1, TODAY_IDX + 1)).toFixed(1)}h per day</small></div>
+        <div class="ibx-bars">${myHours.map((h, d) => `<div class="b${d === TODAY_IDX ? " now" : ""}"><span class="${h ? "" : "zero"}" style="height:${Math.max(6, h / maxH * 100)}%"></span><b>${"MTWTFSS"[d]}</b></div>`).join("")}</div></div>
+      <div class="ibx-tile">${tileHead("Projects", `<span class="ibx-link" data-a="go:plan/timelines">Timeline</span>`)}
+        ${projects().map(p => { const pct = projProgress(p); return `<div class="ibx-prow" data-a="openfolder:${p.id}"><span class="t">${esc(p.name)}</span><span class="bar"><span style="width:${pct}%"></span></span>${mono(pct + "%")}</div>`; }).join("") || '<div class="ibx-kv"><span>No project folders yet</span></div>'}
+        ${ms.length ? `<div class="label-mono ibx-sub">Milestones</div><div class="ibx-mini">${ms.map(({ m, p, dd }) => `<div data-a="openfolder:${p.id}"><span class="t">${esc(m.name)} <span style="color:var(--text-tertiary)">· ${esc(p.name)}</span></span>${mono(dueLabel(dd))}</div>`).join("")}</div>` : ""}</div>
+      <div class="ibx-tile" data-a="go:wiki/flashcards">${tileHead("Learning", ic("gallery-vertical-end", 14, "var(--text-tertiary)"))}
+        <div class="ibx-big">${cards.length ? Math.round(known / cards.length * 100) : 0}%<small> mastered</small></div>
+        ${kv("Cards known", known + " / " + cards.length)}${kv("Studied this week", studyMin + " min")}</div>
+    </aside>`;
 
-    const h2 = (t, extra = "") => `<div class="due-head"><h2 class="ibx-h2">${t}</h2>${extra}</div>`;
     return header("Inbox", { lead: ic("inbox", 16, "var(--text-secondary)"), actions: `<button class="btn sm ghost" data-a="readall">${ic("check-check", 13)}Mark all read</button>` }) + `<div class="scroll"><div class="home ibx">
-      <span class="ibx-pill">${ic("sparkles", 13)}${unread ? `${unread} unread` : "All caught up"} · ${over.length} overdue · ${today.length} due today</span>
-      <h1 class="ibx-title">${greet}, ${esc(D.me.split(" ")[0])}.<br><span>Here's what's next.</span></h1>
-      ${bento}
-      ${h2("Due", `<span class="label-mono">${over.length + today.length + week.length} open</span>`)}
-      <div class="cols">${card("Overdue", over, "late")}${card("Today", today)}${card("This week", week)}</div>
-      ${h2("Notifications", `<span class="label-mono">${open.length}</span>${cleared ? `<span class="ibx-link" data-a="ib-restore">Restore ${cleared} cleared</span>` : ""}`)}
-      ${notes}
-      ${h2("Up next")}
-      <div class="cols ibx-two">${todoCard}${msCard}</div>
+      <h1 class="ibx-title">${greet}, ${esc(D.me.split(" ")[0])}. <span>Here's what's open.</span></h1>
+      ${summary}
+      <div class="ibx-layout"><div class="ibx-main">${notes}${todos}</div>${side}</div>
     </div></div>`;
   }
   /* ---------- Work: notes, canvas, stickies ---------- */
@@ -1406,6 +1395,7 @@
     "ib-read": (v) => { const m = D.inbox.find(x => x.id === +v); m.unread = !m.unread; render(); },
     "ib-done": (v) => { const m = D.inbox.find(x => x.id === +v); m.done = true; m.unread = false; render(); toast("Notification cleared"); },
     "ib-restore": () => { D.inbox.forEach(m => m.done = false); render(); },
+    "ibx-jump": (v) => { const el = document.getElementById(v); el && el.scrollIntoView({ behavior: "smooth", block: "start" }); },
     readall: () => { D.inbox.forEach(m => m.unread = false); render(); toast("All notifications marked read"); },
     pref: (k) => { S.prefs[k] = !S.prefs[k]; render(); },
     savews: () => { const v = document.getElementById("wsname").value.trim(); if (v) { D.workspace.name = v; D.workspace.initial = v[0].toUpperCase(); } render(); toast("Workspace saved"); },
